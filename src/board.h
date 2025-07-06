@@ -10,7 +10,8 @@ typedef enum {
 typedef struct {
     Piece squares[64];
     int side_to_move;
-    // TODO castling rights, en pessant target square, 50 move rule, etc.
+    int en_passant_square;
+    // TODO castling rights, 50 move rule, etc.
 } Board;
 
 void init_board(Board* b);
