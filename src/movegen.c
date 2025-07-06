@@ -18,6 +18,79 @@ const int QUEEN_DIRS[8] = {
     -9, -8, -7, -1, 1, 7, 8, 9
 };
 
+void generate_pawn_moves(const Board* board, MoveList* list, int square) {
+    int side = board->side_to_move;
+    int dir = (side == 0) ? 8 : -8;
+    int col = square % 8;
+    int start_rank = (side == 0) ? 1 : 6;
+    int promote_rank = (side == 0) ? 6 : 1;
+
+    int forward = square + dir;
+
+    if (forward >= 0 && forward < 64 && board->squares[forward] == EMPTY) {
+        if ((square / 8) == promote_rank) {
+            for (int promote = PROMOTE_Q; promote <= PROMOTE_N; promote++) {
+                Move move = {.from = square, .to = forward, .promotion = promote};
+                add_move(list, move);
+            }
+        } else {
+            Move move = {.from = square, .to = forward, .promotion = NO_PROMOTION};
+            add_move(list, move);
+        }
+
+        int double_forward = square + 2 * dir;
+        if ((square / 8) == start_rank && board->squares[double_forward] == EMPTY) {
+            Move move = {.from = square, .to = double_forward, .promotion = NO_PROMOTION};
+            add_move(list, move);
+        }
+    }
+
+    // Left capture
+    if (col > 0) {
+        int target = square + dir - 1;
+        if (target >= 0 && target < 64) {
+            Piece target_piece = board->squares[target];
+            if (target_piece != EMPTY && is_opponent_piece(side, target_piece)) {
+                if ((square / 8) == promote_rank) {
+                    for (int promo = PROMOTE_Q; promo <= PROMOTE_N; promo++) {
+                        Move move = {.from = square, .to = target, .promotion = promo};
+                        add_move(list, move);
+                    }
+                } else {
+                    Move move = {.from = square, .to = target, .promotion = NO_PROMOTION};
+                    add_move(list, move);
+                }
+            } else if (target == board->en_passant_square) {
+                Move move = {.from = square, .to = target, .promotion = NO_PROMOTION};
+                add_move(list, move);
+            }
+        }
+    }
+
+    // Right capture
+    if (col < 7) {
+        int target = square + dir + 1;
+        if (target >= 0 && target < 64) {
+            Piece target_piece = board->squares[target];
+            if (target_piece != EMPTY && is_opponent_piece(side, target_piece)) {
+                if ((square / 8) == promote_rank) {
+                    for (int promo = PROMOTE_Q; promo <= PROMOTE_N; promo++) {
+                        Move move = {.from = square, .to = target, .promotion = promo};
+                        add_move(list, move);
+                    }
+                } else {
+                    Move move = {.from = square, .to = target, .promotion = NO_PROMOTION};
+                    add_move(list, move);
+                }
+            } else if (target == board->en_passant_square) {
+                Move move = {.from = square, .to = target, .promotion = NO_PROMOTION};
+                add_move(list, move);
+            }
+        }
+    }
+}
+
+
 void generate_knight_moves(const Board* board, MoveList* list, int square) {
     int side = board->side_to_move;
 
@@ -41,14 +114,14 @@ void generate_sliding_moves(const Board* board, MoveList* list, int square, cons
     for (int i = 0; i < direction_count; i++) {
         int current_square = square;
         while (1) {
-            int target_square = current_square + directions[1];
+            int target_square = current_square + directions[i];
 
             if (target_square < 0 || target_square > 63) break;
 
             Piece target_piece = board->squares[target_square];
             if (is_own_piece(board->side_to_move, target_piece)) break;
 
-            Move move = {.from = square, .to = target_square, .promotion = NO_PROMOTION };
+            Move move = {.from = square, .to = target_square, .promotion = NO_PROMOTION};
             add_move(list, move);
 
             if (target_piece != EMPTY) break;
@@ -68,7 +141,7 @@ void generate_all_moves(const Board* board, MoveList* list) {
         if (piece == EMPTY || !is_own_piece(side, piece)) continue;
 
         switch (piece) {
-            case wP: case bP: break;
+            case wP: case bP: generate_pawn_moves(board, list, square); break;
             case wN: case bN: generate_knight_moves(board, list, square); break;
             case wB: case bB: generate_sliding_moves(board, list, square, BISHOP_DIRS, 4); break;
             case wR: case bR: generate_sliding_moves(board, list, square, ROOK_DIRS, 4); break;
