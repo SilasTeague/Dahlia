@@ -6,6 +6,18 @@ const int knight_offsets[8] = {
     -17, -15, -10, -6, 6, 10, 15, 17
 };
 
+const int bishop_dirs[4] = {
+    -9, -7, 7, 9
+};
+
+const int rook_dirs[4] = {
+    -8, -1, 1, 8
+};
+
+const int queen_dirs[8] = {
+    -9, -8, -7, -1, 1, 7, 8, 9
+};
+
 void generate_knight_moves(const Board* board, MoveList* list, int square) {
     int side = board->side_to_move;
 
@@ -23,6 +35,27 @@ void generate_knight_moves(const Board* board, MoveList* list, int square) {
             add_move(list, move);
         }
     } 
+}
+
+void generate_sliding_moves(const Board* board, MoveList* list, int square, const int* directions, int direction_count) {
+    for (int i = 0; i < direction_count; i++) {
+        int current_square = square;
+        while (1) {
+            int target_square = current_square + directions[1];
+
+            if (target_square < 0 || target_square > 63) break;
+
+            Piece target_piece = board->squares[target_square];
+            if (is_own_piece(board->side_to_move, target_piece)) break;
+
+            Move move = {.from = square, .to = target_square, .promotion = NO_PROMOTION };
+            add_move(list, move);
+
+            if (target_piece != EMPTY) break;
+
+            current_square = target_square;
+        }
+    }
 }
 
 void generate_all_moves(const Board* board, MoveList* list) {
