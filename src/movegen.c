@@ -6,15 +6,15 @@ const int knight_offsets[8] = {
     -17, -15, -10, -6, 6, 10, 15, 17
 };
 
-const int bishop_dirs[4] = {
+const int BISHOP_DIRS[4] = {
     -9, -7, 7, 9
 };
 
-const int rook_dirs[4] = {
+const int ROOK_DIRS[4] = {
     -8, -1, 1, 8
 };
 
-const int queen_dirs[8] = {
+const int QUEEN_DIRS[8] = {
     -9, -8, -7, -1, 1, 7, 8, 9
 };
 
@@ -70,9 +70,9 @@ void generate_all_moves(const Board* board, MoveList* list) {
         switch (piece) {
             case wP: case bP: break;
             case wN: case bN: generate_knight_moves(board, list, square); break;
-            case wB: case bB: break;
-            case wR: case bR: break;
-            case wQ: case bQ: break;
+            case wB: case bB: generate_sliding_moves(board, list, square, BISHOP_DIRS, 4); break;
+            case wR: case bR: generate_sliding_moves(board, list, square, ROOK_DIRS, 4); break;
+            case wQ: case bQ: generate_sliding_moves(board, list, square, QUEEN_DIRS, 8); break;
             case wK: case bK: break;
             default: break;
         }

@@ -8,9 +8,6 @@ void generate_all_moves(const Board* board, MoveList* list);
 
 void generate_pawn_moves(const Board* board, MoveList* list, int square);
 void generate_knight_moves(const Board* board, MoveList* list, int square);
-void generate_bishop_moves(const Board* board, MoveList* list, int square);
-void generate_rook_moves(const Board* board, MoveList* list, int square);
-void generate_queen_moves(const Board*board, MoveList* list, int square);
 void generate_king_moves(const Board* board, MoveList* list, int square);
 
 void generate_sliding_moves(const Board* board, MoveList* list, int square, const int* directions, int direction_count);
