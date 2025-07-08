@@ -8,6 +8,7 @@ typedef struct {
     Move move;
     Piece captured_piece;
     int side_to_move;
+    int en_passant_square;
 } BoardDiff;
 
 #endif

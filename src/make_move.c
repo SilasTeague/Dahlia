@@ -5,6 +5,7 @@ void make_move(Board* board, Move move, BoardDiff* diff) {
     diff->move = move;
     diff->captured_piece = board->squares[move.to];
     diff->side_to_move = board->side_to_move;
+    diff->en_passant_square = board->en_passant_square;
 
     Piece piece = board->squares[move.from];
     if (piece == wP || piece == bP) {
