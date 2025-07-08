@@ -2,7 +2,7 @@
 #include "piece_utils.h"
 #include <stdlib.h>
 
-const int knight_offsets[8] = {
+const int KNIGHT_OFFSETS[8] = {
     -17, -15, -10, -6, 6, 10, 15, 17
 };
 
@@ -95,7 +95,7 @@ void generate_knight_moves(const Board* board, MoveList* list, int square) {
     int side = board->side_to_move;
 
     for (int i = 0; i < 8; i++) {
-        int to = square + knight_offsets[i];
+        int to = square + KNIGHT_OFFSETS[i];
         if (to < 0 || to > 63) continue; // Out of bounds
 
         int from_rank = square / 8, from_file = square % 8;
