@@ -131,6 +131,73 @@ void generate_sliding_moves(const Board* board, MoveList* list, int square, cons
     }
 }
 
+void generate_king_moves(const Board* board, MoveList* list, int square) {
+
+}
+
+int square_is_attacked(const Board* board, int square, int attacking_side) {
+
+    int file = square % 8;
+    int pawn_dir = (attacking_side == 0) ? -8 : 8;
+    int left = square + pawn_dir - 1;
+    int right = square + pawn_dir + 1;
+    Piece pawn = attacking_side == 0 ? wP : bP;
+
+    if (file > 0 && left >= 0 && left < 64 && is_own_piece(attacking_side, board->squares[left]) && board->squares[left] == pawn) return 1;
+    if (file < 7 && right >= 0 && right < 64 && is_own_piece(attacking_side, board->squares[right]) && board->squares[right] == pawn) return 1;
+
+    for (int i = 0; i < 8; i++) {
+        int target_square = square + KNIGHT_OFFSETS[i];
+        
+        if (target_square < 64 && target_square >= 0) {
+            Piece piece = board->squares[target_square];
+            if (is_own_piece(attacking_side, piece) && is_knight(piece)) {
+                return 1;
+            }
+        }
+    }
+
+    for (int i = 0; i < 4; i++) {
+        for (int distance = 1; distance < 8; distance++) {
+            int target_square = square + (distance * BISHOP_DIRS[i]);
+            
+            int from_file = square % 8;
+            int to_file = target_square % 8;
+            if (abs(to_file - from_file) > distance) break;
+            if (target_square < 0 || target_square >= 64) break;
+
+            Piece piece = board->squares[target_square];
+            if (is_opponent_piece(attacking_side, piece)) break;
+            if (is_own_piece(attacking_side, piece) && ((is_bishop(piece) || is_queen(piece))
+                        || (distance == 1 && is_king(piece)))) {
+                return 1;
+            }
+            if (piece != EMPTY) break;
+        } 
+    }
+
+    for (int i = 0; i < 4; i++) {
+        for (int distance = 1; distance < 8; distance++) {
+            int target_square = square + (distance * ROOK_DIRS[i]);
+            
+            int from_file = square % 8;
+            int to_file = target_square % 8;
+            if (abs(to_file - from_file) > distance) break;
+            if (target_square < 0 || target_square >= 64) break;
+
+            Piece piece = board->squares[target_square];
+            if (is_opponent_piece(attacking_side, piece)) break;
+            if (is_own_piece(attacking_side, piece) && ((is_rook(piece) || is_queen(piece))
+                        || (distance == 1 && is_king(piece)))) {
+                return 1;
+            }
+            if (piece != EMPTY) break;
+        } 
+    }
+
+    return 0;
+}
+
 void generate_all_moves(const Board* board, MoveList* list) {
     list->count = 0;
 
