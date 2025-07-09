@@ -19,3 +19,27 @@ int is_opponent_piece(int side, Piece piece) {
 int is_sliding_piece(Piece piece) {
     return (piece >= wB && piece <= wQ) || (piece >= bB && piece <= bQ);
 }
+
+int is_pawn(Piece piece) {
+    return (piece == wP || piece == bP);
+}
+
+int is_knight(Piece piece) {
+    return (piece == wN || piece == bN);
+}
+
+int is_bishop(Piece piece) {
+    return (piece == wB || piece == bB);
+}
+
+int is_rook(Piece piece) {
+    return (piece == wR || piece == bR);
+}
+
+int is_queen(Piece piece) {
+    return (piece == wQ || piece == bQ);
+}
+
+int is_king(Piece piece) {
+    return (piece == wK || piece == bK);
+}
