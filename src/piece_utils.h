@@ -7,5 +7,6 @@ int is_white(Piece piece);
 int is_black(Piece piece);
 int is_own_piece(int side, Piece piece);
 int is_opponent_piece(int side, Piece piece);
+int is_sliding_piece(Piece piece);
 
 #endif

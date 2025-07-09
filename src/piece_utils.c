@@ -15,3 +15,7 @@ int is_own_piece(int side, Piece piece) {
 int is_opponent_piece(int side, Piece piece) {
     return (side == 0 && is_black(piece)) || (side == 1 && is_white(piece));
 }
+
+int is_sliding_piece(Piece piece) {
+    return (piece >= wB && piece <= wQ) || (piece >= bB && piece <= bQ);
+}
