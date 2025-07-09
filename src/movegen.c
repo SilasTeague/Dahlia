@@ -148,22 +148,23 @@ int square_is_attacked(const Board* board, int square, int attacking_side) {
 
     for (int i = 0; i < 8; i++) {
         int target_square = square + KNIGHT_OFFSETS[i];
-        
-        if (target_square < 64 && target_square >= 0) {
-            Piece piece = board->squares[target_square];
-            if (is_own_piece(attacking_side, piece) && is_knight(piece)) {
-                return 1;
-            }
-        }
+        if (target_square < 0 || target_square >= 64) continue;
+
+        int from_file = square % 8;
+        int to_file = target_square % 8;
+        if (abs(to_file - from_file) > 2) continue;
+
+        Piece piece = board->squares[target_square];
+        if (is_own_piece(attacking_side, piece) && is_knight(piece)) return 1;
     }
 
     for (int i = 0; i < 4; i++) {
         for (int distance = 1; distance < 8; distance++) {
             int target_square = square + (distance * BISHOP_DIRS[i]);
-            
+
             int from_file = square % 8;
             int to_file = target_square % 8;
-            if (abs(to_file - from_file) > distance) break;
+            if (abs(to_file - from_file) != distance && BISHOP_DIRS[i] % 8 != 0) break;
             if (target_square < 0 || target_square >= 64) break;
 
             Piece piece = board->squares[target_square];
@@ -182,7 +183,7 @@ int square_is_attacked(const Board* board, int square, int attacking_side) {
             
             int from_file = square % 8;
             int to_file = target_square % 8;
-            if (abs(to_file - from_file) > distance) break;
+            if (abs(to_file - from_file) != distance && ROOK_DIRS[i] % 8 != 0) break;
             if (target_square < 0 || target_square >= 64) break;
 
             Piece piece = board->squares[target_square];
