@@ -18,6 +18,10 @@ const int QUEEN_DIRS[8] = {
     -9, -8, -7, -1, 1, 7, 8, 9
 };
 
+const int KING_OFFSETS[8] = {
+    -9, -8, -7, -1, 1, 7, 8, 9
+};
+
 void generate_pawn_moves(const Board* board, MoveList* list, int square) {
     int side = board->side_to_move;
     int dir = (side == 0) ? 8 : -8;
@@ -100,7 +104,7 @@ void generate_knight_moves(const Board* board, MoveList* list, int square) {
 
         int from_rank = square / 8, from_file = square % 8;
         int to_rank = to / 8, to_file = to % 8;
-        if (abs(from_rank - to_rank) > 2 || abs(from_file - to_file) > 2) continue; // Jumped from one side of the board to the other
+        if (abs(from_file - to_file) > 2) continue; // Jumped from one side of the board to the other
 
         Piece target = board->squares[to];
         if (target == EMPTY || is_opponent_piece(side, target)) {
@@ -132,7 +136,70 @@ void generate_sliding_moves(const Board* board, MoveList* list, int square, cons
 }
 
 void generate_king_moves(const Board* board, MoveList* list, int square) {
+    for (int i = 0; i < 8; i++) {
+        int target_square = square + KING_OFFSETS[i];
+        if (target_square < 0 || target_square >= 64) continue;
 
+        int from_file = square % 8;
+        int to_file = target_square % 8;
+        if (abs(to_file - from_file) != 1) continue;
+        
+        Piece piece = board->squares[target_square];
+        if (is_own_piece(board->side_to_move, piece) || square_is_attacked(board, target_square, 1 - board->side_to_move)) {
+            continue;
+        }
+        Move move = {.from = square, .to = target_square, .promotion = NO_PROMOTION};
+        add_move(list, move);
+    }
+
+    // Castling
+    int side = board->side_to_move;
+
+    if (side == 0) {
+        if (board->castling_rights & CASTLE_W_KINGSIDE) {
+            if (board->squares[5] == EMPTY && board->squares[6] == EMPTY) {
+                if (!square_is_attacked(board, 4, 1) &&
+                    !square_is_attacked(board, 5, 1) &&
+                    !square_is_attacked(board, 6, 1)) {
+                    Move castle = {.from = 4, .to = 6, .promotion = NO_PROMOTION};
+                    add_move(list, castle);
+                }
+            }
+        }
+
+        if (board->castling_rights & CASTLE_W_QUEENSIDE) {
+            if (board->squares[3] == EMPTY && board->squares[2] == EMPTY && board->squares[1] == EMPTY) {
+                if (!square_is_attacked(board, 4, 1) &&
+                    !square_is_attacked(board, 3, 1) &&
+                    !square_is_attacked(board, 2, 1)) {
+                    Move castle = {.from = 4, .to = 2, .promotion = NO_PROMOTION};
+                    add_move(list, castle);
+                }
+            }
+        }
+    } else {
+        if (board->castling_rights & CASTLE_B_KINGSIDE) {
+            if (board->squares[61] == EMPTY && board->squares[62] == EMPTY) {
+                if (!square_is_attacked(board, 60, 0) &&
+                    !square_is_attacked(board, 61, 0) &&
+                    !square_is_attacked(board, 62, 0)) {
+                    Move castle = {.from = 60, .to = 62, .promotion = NO_PROMOTION};
+                    add_move(list, castle);
+                }
+            }
+        }
+
+        if (board->castling_rights & CASTLE_B_QUEENSIDE) {
+            if (board->squares[59] == EMPTY && board->squares[58] == EMPTY && board->squares[57] == EMPTY) {
+                if (!square_is_attacked(board, 60, 0) &&
+                    !square_is_attacked(board, 59, 0) &&
+                    !square_is_attacked(board, 58, 0)) {
+                    Move castle = {.from = 60, .to = 58, .promotion = NO_PROMOTION};
+                    add_move(list, castle);
+                }
+            }
+        }
+    }
 }
 
 int square_is_attacked(const Board* board, int square, int attacking_side) {
@@ -214,7 +281,7 @@ void generate_all_moves(const Board* board, MoveList* list) {
             case wB: case bB: generate_sliding_moves(board, list, square, BISHOP_DIRS, 4); break;
             case wR: case bR: generate_sliding_moves(board, list, square, ROOK_DIRS, 4); break;
             case wQ: case bQ: generate_sliding_moves(board, list, square, QUEEN_DIRS, 8); break;
-            case wK: case bK: break;
+            case wK: case bK: generate_king_moves(board, list, square); break;
             default: break;
         }
     }
