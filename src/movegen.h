@@ -9,7 +9,7 @@ void generate_all_moves(const Board* board, MoveList* list);
 void generate_pawn_moves(const Board* board, MoveList* list, int square);
 void generate_knight_moves(const Board* board, MoveList* list, int square);
 void generate_king_moves(const Board* board, MoveList* list, int square);
-void square_is_attacked(const Board* board, int square, int attacking_side);
+int square_is_attacked(const Board* board, int square, int attacking_side);
 
 void generate_sliding_moves(const Board* board, MoveList* list, int square, const int* directions, int direction_count);
 
