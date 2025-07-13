@@ -32,55 +32,41 @@ void make_move(Board* board, Move move, BoardDiff* diff) {
     }
 
     // Castling
-    if (is_king(piece)) {
-        // White kingside
-        if (move.from == 4 && move.to == 6) {
-            board->squares[5] = wR;
-            board->squares[6] = wK;
-            board->squares[4] = EMPTY;
-            board->squares[7] = EMPTY;
-            board->side_to_move = 1 - board->side_to_move;
-            return;
-        }
-        // Black kingside
-        if (move.from == 60 && move.to == 62) {
-            board->squares[61] = bR;
-            board->squares[62] = bK;
-            board->squares[60] = EMPTY;
-            board->squares[63] = EMPTY;
-            board->side_to_move = 1 - board->side_to_move;
-            return;
-        }
-        // White queenside
-        if (move.from == 4 && move.to == 2) {
-            board->squares[3] = wR;
-            board->squares[2] = wK;
-            board->squares[0] = EMPTY;
-            board->squares[4] = EMPTY;
-            board->side_to_move = 1 - board->side_to_move;
-            return;
-        }
-        // Black queenside
-        if (move.from == 60 && move.to == 58) {
-            board->squares[59] = bR;
-            board->squares[58] = bK;
-            board->squares[56] = EMPTY;
-            board->squares[60] = EMPTY;
-            board->side_to_move = 1 - board->side_to_move;
-            return;
-        }
+    // Remove castling rights when a king or rook moves
+    if (piece == wK) board->castling_rights &= ~(CASTLE_W_KINGSIDE | CASTLE_W_QUEENSIDE);
+    if (piece == bK) board->castling_rights &= ~(CASTLE_B_KINGSIDE | CASTLE_B_QUEENSIDE);
+
+    if (piece == wR && move.from == 0) board->castling_rights &= ~CASTLE_W_QUEENSIDE;
+    if (piece == wR && move.from == 7) board->castling_rights &= ~CASTLE_W_KINGSIDE;
+    if (piece == bR && move.from == 56) board->castling_rights &= ~CASTLE_B_QUEENSIDE;
+    if (piece == bR && move.from == 63) board->castling_rights &= ~CASTLE_B_KINGSIDE;
+
+    if (diff->captured_piece == wR && move.to == 0) board->castling_rights &= ~CASTLE_W_QUEENSIDE;
+    if (diff->captured_piece == wR && move.to == 7) board->castling_rights &= ~CASTLE_W_KINGSIDE;
+    if (diff->captured_piece == bR && move.to == 56) board->castling_rights &= ~CASTLE_B_QUEENSIDE;
+    if (diff->captured_piece == bR && move.to == 63) board->castling_rights &= ~CASTLE_B_KINGSIDE;
+
+    // Castling movement
+    if (piece == wK && move.from == 4 && move.to == 6) { // White kingside
+        board->squares[5] = wR;
+        board->squares[7] = EMPTY;
+    } else if (piece == wK && move.from == 4 && move.to == 2) { // White queenside
+        board->squares[3] = wR;
+        board->squares[0] = EMPTY;
+    } else if (piece == bK && move.from == 60 && move.to == 62) { // Black kingside
+        board->squares[61] = bR;
+        board->squares[63] = EMPTY;
+    } else if (piece == bK && move.from == 60 && move.to == 58) { // Black queenside
+        board->squares[59] = bR;
+        board->squares[56] = EMPTY;
     }
 
     if (move.promotion != NO_PROMOTION) {
         switch (move.promotion) {
-            case PROMOTE_Q: board->squares[move.to] = board->side_to_move == 0 ? wQ: bQ;
-            break;
-            case PROMOTE_R: board->squares[move.to] = board->side_to_move == 0 ? wR: bR;
-            break;
-            case PROMOTE_B: board->squares[move.to] = board->side_to_move == 0 ? wB: bB;
-            break;
-            case PROMOTE_N: board->squares[move.to] = board->side_to_move == 0 ? wN: bN;
-            break;
+            case PROMOTE_Q: board->squares[move.to] = (board->side_to_move == 0 ? wQ: bQ); break;
+            case PROMOTE_R: board->squares[move.to] = (board->side_to_move == 0 ? wR: bR); break;
+            case PROMOTE_B: board->squares[move.to] = (board->side_to_move == 0 ? wB: bB); break;
+            case PROMOTE_N: board->squares[move.to] = (board->side_to_move == 0 ? wN: bN); break;
         }
     } else {
         board->squares[move.to] = board->squares[move.from];
