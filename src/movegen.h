@@ -4,7 +4,7 @@
 #include "board.h"
 #include "move_list.h"
 
-void generate_psuedo_legal_moves(const Board* board, MoveList* list);
+void generate_pseudo_legal_moves(const Board* board, MoveList* list);
 
 void generate_legal_moves(Board* board, MoveList* pl_moves, MoveList* legal_moves);
 
