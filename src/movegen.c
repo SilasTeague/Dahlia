@@ -1,5 +1,7 @@
 #include "movegen.h"
 #include "piece_utils.h"
+#include "make_move.h"
+#include "unmake_move.h"
 #include <stdlib.h>
 
 const int KNIGHT_OFFSETS[8] = {
@@ -266,7 +268,21 @@ int square_is_attacked(const Board* board, int square, int attacking_side) {
     return 0;
 }
 
-void generate_all_moves(const Board* board, MoveList* list) {
+int find_king_square(const Board* board, int side) {
+    Piece king = (side == 0) ? wK : bK;
+    for (int i = 0; i < 64; i++) {
+        if (board->squares[i] == king)
+            return i;
+    }
+    return -1;
+}
+
+int is_check(const Board* board, int side) {
+    int king_square = find_king_square(board, side);
+    return square_is_attacked(board, king_square, 1 - side);
+}
+
+void generate_pseudo_legal_moves(const Board* board, MoveList* list) {
     list->count = 0;
 
     for (int square = 0; square < 64; square++) {
@@ -284,5 +300,13 @@ void generate_all_moves(const Board* board, MoveList* list) {
             case wK: case bK: generate_king_moves(board, list, square); break;
             default: break;
         }
+    }
+}
+
+void generate_legal_moves(const Board* board, MoveList* pl_moves, MoveList* legal_moves) {
+    for (int i = 0; i < pl_moves->count; i++) {
+        Move move = pl_moves->moves[i];
+        BoardDiff diff;
+        make_move(board, move, &diff);
     }
 }
