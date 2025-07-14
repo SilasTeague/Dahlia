@@ -8,9 +8,21 @@ void make_move(Board* board, Move move, BoardDiff* diff) {
     diff->side_to_move = board->side_to_move;
     diff->en_passant_square = board->en_passant_square;
     diff->castling_rights = board->castling_rights;
+    diff->halfmove_clock = board->halfmove_clock;
+    diff->fullmove_counter = board->fullmove_counter;
 
     Piece piece = board->squares[move.from];
     int side = board->side_to_move;
+
+    if (piece == wP || piece == bP || diff->captured_piece != EMPTY) {
+        board->halfmove_clock = 0;
+    } else {
+        board->halfmove_clock++;
+    }
+
+    if (board->side_to_move == 1) {
+        board->fullmove_counter++;
+}
 
     if (piece == wP || piece == bP) {
         int start_rank = (piece == wP) ? 1 : 6;

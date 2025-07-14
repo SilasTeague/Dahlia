@@ -10,6 +10,8 @@ typedef struct {
     int side_to_move;
     int en_passant_square;
     int castling_rights;
+    int halfmove_clock;
+    int fullmove_counter;
 } BoardDiff;
 
 #endif

@@ -8,6 +8,8 @@ void init_board(Board* b) {
     b->side_to_move = 0; // White to move
     b->en_passant_square = -1;
     b->castling_rights = CASTLE_W_KINGSIDE | CASTLE_W_QUEENSIDE | CASTLE_B_KINGSIDE | CASTLE_B_QUEENSIDE;
+    b->fullmove_counter = 1;
+    b->halfmove_clock = 0;
 }
 
 void print_board(const Board* b) {
