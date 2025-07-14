@@ -59,4 +59,8 @@ void set_starting_position(Board* b) {
         b->squares[i] = starting_squares[i];
     }
     b->side_to_move = 0; // White to move
+    b->castling_rights = 15;
+    b->en_passant_square = -1;
+    b->fullmove_counter = 1;
+    b->halfmove_clock = 0;
 }
