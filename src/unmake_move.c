@@ -24,8 +24,6 @@ void unmake_move(Board* board, const BoardDiff diff) {
         moved_piece = (board->side_to_move == 0) ? wP : bP;
     }
 
-    board->squares[move.from] = moved_piece;
-
     // Undo castling
     if (moved_piece == wK && move.from == 4 && move.to == 6) {
         // White kingside
@@ -44,4 +42,6 @@ void unmake_move(Board* board, const BoardDiff diff) {
         board->squares[56] = bR;
         board->squares[59] = EMPTY;
     }
+
+    board->squares[move.from] = moved_piece;
 }

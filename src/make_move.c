@@ -25,6 +25,12 @@ void make_move(Board* board, Move move, BoardDiff* diff) {
     }
 
     if (piece == wP || piece == bP) {
+        if (move.to == board->en_passant_square) {
+            int ep_pawn_square = move.to + (side == 0 ? -8 : 8);
+            diff->captured_piece = board->squares[ep_pawn_square];
+            board->squares[ep_pawn_square] = EMPTY;
+        }
+
         int start_rank = (piece == wP) ? 1 : 6;
         int direction = (piece == wP) ? 8 : -8;
 
@@ -33,12 +39,7 @@ void make_move(Board* board, Move move, BoardDiff* diff) {
         } else {
             board->en_passant_square = -1;
         }
-
-        if (move.to == board->en_passant_square) {
-            int ep_capture_square = move.to + (side == 0 ? -8 : 8);
-            diff->captured_piece = board->squares[ep_capture_square];
-            board->squares[ep_capture_square] = EMPTY;
-        }
+        
     } else {
         board->en_passant_square = -1;
     }
