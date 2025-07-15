@@ -12,7 +12,7 @@ void unmake_move(Board* board, const BoardDiff diff) {
 
     // Undo en passant
     if ((moved_piece == wP || moved_piece == bP) && move.to == diff.en_passant_square) {
-        int capture_square = move.to + (board->side_to_move == 0 ? 8 : -8);
+        int capture_square = move.to + (board->side_to_move == 0 ? -8 : 8);
         board->squares[capture_square] = diff.captured_piece;
         board->squares[move.to] = EMPTY;
     } else {
