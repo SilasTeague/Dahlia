@@ -22,7 +22,7 @@ void make_move(Board* board, Move move, BoardDiff* diff) {
 
     if (board->side_to_move == 1) {
         board->fullmove_counter++;
-}
+    }
 
     if (piece == wP || piece == bP) {
         int start_rank = (piece == wP) ? 1 : 6;
@@ -34,7 +34,7 @@ void make_move(Board* board, Move move, BoardDiff* diff) {
             board->en_passant_square = -1;
         }
 
-        if (move.to == diff->en_passant_square) {
+        if (move.to == board->en_passant_square) {
             int ep_capture_square = move.to + (side == 0 ? -8 : 8);
             diff->captured_piece = board->squares[ep_capture_square];
             board->squares[ep_capture_square] = EMPTY;
