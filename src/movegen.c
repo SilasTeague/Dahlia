@@ -117,12 +117,18 @@ void generate_knight_moves(const Board* board, MoveList* list, int square) {
 }
 
 void generate_sliding_moves(const Board* board, MoveList* list, int square, const int* directions, int direction_count) {
+    int from_rank = square / 8;
+    int from_file = square % 8;
     for (int i = 0; i < direction_count; i++) {
+        int dir = directions[i];
         int current_square = square;
         while (1) {
-            int target_square = current_square + directions[i];
-
+            int target_square = current_square + dir;
             if (target_square < 0 || target_square > 63) break;
+
+            int to_rank = target_square / 8;
+            int to_file = target_square % 8;
+            if (abs(to_file - (current_square % 8)) > 1 && (dir == -1 || dir == 1 || dir == -9 || dir == 7 || dir == -7 || dir == 9)) break;
 
             Piece target_piece = board->squares[target_square];
             if (is_own_piece(board->side_to_move, target_piece)) break;
@@ -144,7 +150,7 @@ void generate_king_moves(const Board* board, MoveList* list, int square) {
 
         int from_file = square % 8;
         int to_file = target_square % 8;
-        if (abs(to_file - from_file) != 1) continue;
+        if (abs(to_file - from_file) > 1 || abs((square / 8) - (target_square / 8)) > 1) continue;
         
         Piece piece = board->squares[target_square];
         if (is_own_piece(board->side_to_move, piece) || square_is_attacked(board, target_square, 1 - board->side_to_move)) {
@@ -233,7 +239,7 @@ int square_is_attacked(const Board* board, int square, int attacking_side) {
 
             int from_file = square % 8;
             int to_file = target_square % 8;
-            if (abs(to_file - from_file) != distance && BISHOP_DIRS[i] % 8 != 0) break;
+            if (abs(to_file - from_file) > distance) break;
             if (target_square < 0 || target_square >= 64) break;
 
             Piece piece = board->squares[target_square];
@@ -252,7 +258,7 @@ int square_is_attacked(const Board* board, int square, int attacking_side) {
             
             int from_file = square % 8;
             int to_file = target_square % 8;
-            if (abs(to_file - from_file) != distance && ROOK_DIRS[i] % 8 != 0) break;
+            if (abs(to_file - from_file) > distance && ROOK_DIRS[i] % 8 != 0) break;
             if (target_square < 0 || target_square >= 64) break;
 
             Piece piece = board->squares[target_square];
