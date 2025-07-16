@@ -153,7 +153,7 @@ void generate_king_moves(const Board* board, MoveList* list, int square) {
         if (abs(to_file - from_file) > 1 || abs((square / 8) - (target_square / 8)) > 1) continue;
         
         Piece piece = board->squares[target_square];
-        if (is_own_piece(board->side_to_move, piece) || square_is_attacked(board, target_square, 1 - board->side_to_move)) {
+        if (is_own_piece(board->side_to_move, piece) || square_is_attacked(board, target_square, board->side_to_move)) {
             continue;
         }
         Move move = {.from = square, .to = target_square, .promotion = NO_PROMOTION};
@@ -166,9 +166,9 @@ void generate_king_moves(const Board* board, MoveList* list, int square) {
     if (side == 0) {
         if (board->castling_rights & CASTLE_W_KINGSIDE) {
             if (board->squares[5] == EMPTY && board->squares[6] == EMPTY) {
-                if (!square_is_attacked(board, 4, 1) &&
-                    !square_is_attacked(board, 5, 1) &&
-                    !square_is_attacked(board, 6, 1)) {
+                if (!square_is_attacked(board, 4, 0) &&
+                    !square_is_attacked(board, 5, 0) &&
+                    !square_is_attacked(board, 6, 0)) {
                     Move castle = {.from = 4, .to = 6, .promotion = NO_PROMOTION};
                     add_move(list, castle);
                 }
@@ -177,9 +177,9 @@ void generate_king_moves(const Board* board, MoveList* list, int square) {
 
         if (board->castling_rights & CASTLE_W_QUEENSIDE) {
             if (board->squares[3] == EMPTY && board->squares[2] == EMPTY && board->squares[1] == EMPTY) {
-                if (!square_is_attacked(board, 4, 1) &&
-                    !square_is_attacked(board, 3, 1) &&
-                    !square_is_attacked(board, 2, 1)) {
+                if (!square_is_attacked(board, 4, 0) &&
+                    !square_is_attacked(board, 3, 0) &&
+                    !square_is_attacked(board, 2, 0)) {
                     Move castle = {.from = 4, .to = 2, .promotion = NO_PROMOTION};
                     add_move(list, castle);
                 }
@@ -188,9 +188,9 @@ void generate_king_moves(const Board* board, MoveList* list, int square) {
     } else {
         if (board->castling_rights & CASTLE_B_KINGSIDE) {
             if (board->squares[61] == EMPTY && board->squares[62] == EMPTY) {
-                if (!square_is_attacked(board, 60, 0) &&
-                    !square_is_attacked(board, 61, 0) &&
-                    !square_is_attacked(board, 62, 0)) {
+                if (!square_is_attacked(board, 60, 1) &&
+                    !square_is_attacked(board, 61, 1) &&
+                    !square_is_attacked(board, 62, 1)) {
                     Move castle = {.from = 60, .to = 62, .promotion = NO_PROMOTION};
                     add_move(list, castle);
                 }
@@ -199,9 +199,9 @@ void generate_king_moves(const Board* board, MoveList* list, int square) {
 
         if (board->castling_rights & CASTLE_B_QUEENSIDE) {
             if (board->squares[59] == EMPTY && board->squares[58] == EMPTY && board->squares[57] == EMPTY) {
-                if (!square_is_attacked(board, 60, 0) &&
-                    !square_is_attacked(board, 59, 0) &&
-                    !square_is_attacked(board, 58, 0)) {
+                if (!square_is_attacked(board, 60, 1) &&
+                    !square_is_attacked(board, 59, 1) &&
+                    !square_is_attacked(board, 58, 1)) {
                     Move castle = {.from = 60, .to = 58, .promotion = NO_PROMOTION};
                     add_move(list, castle);
                 }
@@ -210,16 +210,16 @@ void generate_king_moves(const Board* board, MoveList* list, int square) {
     }
 }
 
-int square_is_attacked(const Board* board, int square, int attacking_side) {
+int square_is_attacked(const Board* board, int square, int side) {
 
     int file = square % 8;
-    int pawn_dir = (attacking_side == 0) ? -8 : 8;
+    int pawn_dir = (side == 0) ? 8 : -8;
     int left = square + pawn_dir - 1;
     int right = square + pawn_dir + 1;
-    Piece pawn = attacking_side == 0 ? wP : bP;
+    Piece pawn = side == 0 ? bP : wP;
 
-    if (file > 0 && left >= 0 && left < 64 && is_own_piece(attacking_side, board->squares[left]) && board->squares[left] == pawn) return 1;
-    if (file < 7 && right >= 0 && right < 64 && is_own_piece(attacking_side, board->squares[right]) && board->squares[right] == pawn) return 1;
+    if (file > 0 && left >= 0 && left < 64 && is_opponent_piece(side, board->squares[left]) && board->squares[left] == pawn) return 1;
+    if (file < 7 && right >= 0 && right < 64 && is_opponent_piece(side, board->squares[right]) && board->squares[right] == pawn) return 1;
 
     for (int i = 0; i < 8; i++) {
         int target_square = square + KNIGHT_OFFSETS[i];
@@ -230,7 +230,7 @@ int square_is_attacked(const Board* board, int square, int attacking_side) {
         if (abs(to_file - from_file) > 2) continue;
 
         Piece piece = board->squares[target_square];
-        if (is_own_piece(attacking_side, piece) && is_knight(piece)) return 1;
+        if (is_opponent_piece(side, piece) && is_knight(piece)) return 1;
     }
 
     for (int i = 0; i < 4; i++) {
@@ -243,8 +243,8 @@ int square_is_attacked(const Board* board, int square, int attacking_side) {
             if (target_square < 0 || target_square >= 64) break;
 
             Piece piece = board->squares[target_square];
-            if (is_opponent_piece(attacking_side, piece)) break;
-            if (is_own_piece(attacking_side, piece) && ((is_bishop(piece) || is_queen(piece))
+            if (is_own_piece(side, piece)) break;
+            if (is_opponent_piece(side, piece) && ((is_bishop(piece) || is_queen(piece))
                         || (distance == 1 && is_king(piece)))) {
                 return 1;
             }
@@ -262,8 +262,8 @@ int square_is_attacked(const Board* board, int square, int attacking_side) {
             if (target_square < 0 || target_square >= 64) break;
 
             Piece piece = board->squares[target_square];
-            if (is_opponent_piece(attacking_side, piece)) break;
-            if (is_own_piece(attacking_side, piece) && ((is_rook(piece) || is_queen(piece))
+            if (is_own_piece(side, piece)) break;
+            if (is_opponent_piece(side, piece) && ((is_rook(piece) || is_queen(piece))
                         || (distance == 1 && is_king(piece)))) {
                 return 1;
             }
@@ -285,7 +285,7 @@ int find_king_square(const Board* board, int side) {
 
 int is_check(const Board* board, int side) {
     int king_square = find_king_square(board, side);
-    return square_is_attacked(board, king_square, 1 - side);
+    return square_is_attacked(board, king_square, side);
 }
 
 void generate_pseudo_legal_moves(const Board* board, MoveList* list) {
@@ -321,7 +321,7 @@ void generate_legal_moves(Board* board, MoveList* pl_moves, MoveList* legal_move
         if (!is_check(board, side)) {
             legal_moves->moves[legal_moves->count++] = move;
         } 
-            
+
         unmake_move(board, diff);
     }
 }

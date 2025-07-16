@@ -11,7 +11,7 @@ void generate_legal_moves(Board* board, MoveList* pl_moves, MoveList* legal_move
 void generate_pawn_moves(const Board* board, MoveList* list, int square);
 void generate_knight_moves(const Board* board, MoveList* list, int square);
 void generate_king_moves(const Board* board, MoveList* list, int square);
-int square_is_attacked(const Board* board, int square, int attacking_side);
+int square_is_attacked(const Board* board, int square, int side);
 int find_king_square(const Board* board, int side);
 int is_check(const Board* board, int side);
 
