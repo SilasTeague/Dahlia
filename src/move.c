@@ -17,5 +17,10 @@ const char* promotion_names[5] = {
 };
 
 void print_move(const Move move) {
-    printf("%s to %s (%s)\n", square_names[move.from], square_names[move.to], promotion_names[move.promotion]);
+    if (move.promotion != 0) {
+        printf("%s%s (%s)\n", square_names[move.from], square_names[move.to], promotion_names[move.promotion]);
+    } else {
+        printf("%s%s\n", square_names[move.from], square_names[move.to]);
+    }
+    
 }
