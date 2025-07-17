@@ -3,6 +3,7 @@
 #include "make_move.h"
 #include "unmake_move.h"
 #include <stdlib.h>
+#include <stdio.h>
 
 const int KNIGHT_OFFSETS[8] = {
     -17, -15, -10, -6, 6, 10, 15, 17
@@ -237,9 +238,10 @@ int square_is_attacked(const Board* board, int square, int side) {
         for (int distance = 1; distance < 8; distance++) {
             int target_square = square + (distance * BISHOP_DIRS[i]);
 
-            int from_file = square % 8;
-            int to_file = target_square % 8;
-            if (abs(to_file - from_file) > distance) break;
+            int rank_diff = (target_square / 8) - (square / 8);
+            int file_diff = (target_square % 8) - (square % 8);
+
+            if (abs(rank_diff) != abs(file_diff)) break;
             if (target_square < 0 || target_square >= 64) break;
 
             Piece piece = board->squares[target_square];
@@ -256,9 +258,7 @@ int square_is_attacked(const Board* board, int square, int side) {
         for (int distance = 1; distance < 8; distance++) {
             int target_square = square + (distance * ROOK_DIRS[i]);
             
-            int from_file = square % 8;
-            int to_file = target_square % 8;
-            if (abs(to_file - from_file) > distance && ROOK_DIRS[i] % 8 != 0) break;
+            if ((ROOK_DIRS[i] == 1 || ROOK_DIRS[i] == -1) && (square / 8 != target_square / 8 && square % 8 != target_square % 8)) break;
             if (target_square < 0 || target_square >= 64) break;
 
             Piece piece = board->squares[target_square];
