@@ -12,6 +12,8 @@ void uci_loop() {
             printf("uciok");
         } else if (strncmp(line, "isready", 7)) {
             printf("readyok");
+        } else if (strncmp(line, "quit", 4)) {
+            break;
         }
     }
 }
