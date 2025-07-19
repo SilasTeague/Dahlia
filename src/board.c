@@ -57,6 +57,9 @@ void clear_board(Board* b) {
     for (int i = 0; i < 64; i++) {
         b->squares[i] = EMPTY;
     }
+}
+
+void reset_board_state(Board* b) {
     b->side_to_move = 0; // White to move
     b->en_passant_square = -1;
     b->castling_rights = CASTLE_W_KINGSIDE | CASTLE_W_QUEENSIDE | CASTLE_B_KINGSIDE | CASTLE_B_QUEENSIDE;

@@ -24,5 +24,6 @@ typedef struct {
 void init_board(Board* b);
 void print_board(const Board* b);
 void clear_board(Board* b);
+void reset_board_state(Board* b);
 
 #endif
