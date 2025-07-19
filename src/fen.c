@@ -6,6 +6,7 @@
 
 void fen_to_board(Board* board, const char* fen) {
     init_board(board);
+    clear_board(board);
 
     int i = 0;
     int square = 56;
