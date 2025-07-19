@@ -5,6 +5,6 @@
 #include "move.h"
 
 Move find_best_move(Board* board, int depth);
-int minimax(Board* board, int depth, int maximizingSide);
+int minimax(Board* board, int depth, int maximizingPlayer);
 
 #endif

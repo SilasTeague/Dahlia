@@ -36,13 +36,13 @@ Move find_best_move(Board* board, int depth) {
     return best_move;
 }
 
-int minimax(Board* board, int depth, int maximizingSide) {
+int minimax(Board* board, int depth, int maximizingPlayer) {
     if (depth == 0) return evaluate_position(board);
 
     MoveList moves;
     generate_legal_moves(board, &moves);
 
-    if (maximizingSide) {
+    if (maximizingPlayer) {
         int max_eval = INT_MIN;
         for (int i = 0; i < moves.count; i++) {
             Move move = moves.moves[i];
@@ -50,7 +50,7 @@ int minimax(Board* board, int depth, int maximizingSide) {
             BoardDiff diff;
             make_move(&copy, move, &diff);
 
-            int eval = minimax(board, depth - 1, 0);
+            int eval = (moves.count == 0) ? INT_MIN : minimax(&copy, depth - 1, 0);
             max_eval = MAX(eval, max_eval);   
         }
         return max_eval;
@@ -61,7 +61,7 @@ int minimax(Board* board, int depth, int maximizingSide) {
             Board copy = *board;
             BoardDiff diff;
             make_move(&copy, move, &diff);
-            int eval = minimax(board, depth - 1, 1);
+            int eval = (moves.count == 0) ? INT_MAX : minimax(&copy, depth - 1, 1);
             min_eval = MIN(eval, min_eval);
         }
         return min_eval;
