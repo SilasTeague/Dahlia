@@ -2,12 +2,23 @@
 #include "board.h"
 
 void init_board(Board* b) {
+    Piece starting_squares[64] = {
+        wR, wN, wB, wQ, wK, wB, wN, wR,
+        wP, wP, wP, wP, wP, wP, wP, wP,
+        EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY,
+        EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY,
+        EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY,
+        EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY,
+        bP, bP, bP, bP, bP, bP, bP, bP,
+        bR, bN, bB, bQ, bK, bB, bN, bR
+    };
+
     for (int i = 0; i < 64; i++) {
-        b->squares[i] = EMPTY;
+        b->squares[i] = starting_squares[i];
     }
     b->side_to_move = 0; // White to move
+    b->castling_rights = 15;
     b->en_passant_square = -1;
-    b->castling_rights = CASTLE_W_KINGSIDE | CASTLE_W_QUEENSIDE | CASTLE_B_KINGSIDE | CASTLE_B_QUEENSIDE;
     b->fullmove_counter = 1;
     b->halfmove_clock = 0;
 }
@@ -42,25 +53,13 @@ void print_board(const Board* b) {
     printf("  a b c d e f g h");
 }
 
-void set_starting_position(Board* b) {
-    init_board(b);
-    Piece starting_squares[64] = {
-        wR, wN, wB, wQ, wK, wB, wN, wR,
-        wP, wP, wP, wP, wP, wP, wP, wP,
-        EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY,
-        EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY,
-        EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY,
-        EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY,
-        bP, bP, bP, bP, bP, bP, bP, bP,
-        bR, bN, bB, bQ, bK, bB, bN, bR
-    };
-
+void clear_board(Board* b) {
     for (int i = 0; i < 64; i++) {
-        b->squares[i] = starting_squares[i];
+        b->squares[i] = EMPTY;
     }
     b->side_to_move = 0; // White to move
-    b->castling_rights = 15;
     b->en_passant_square = -1;
+    b->castling_rights = CASTLE_W_KINGSIDE | CASTLE_W_QUEENSIDE | CASTLE_B_KINGSIDE | CASTLE_B_QUEENSIDE;
     b->fullmove_counter = 1;
-    b->halfmove_clock = 0;
+    b->halfmove_clock = 0;  
 }

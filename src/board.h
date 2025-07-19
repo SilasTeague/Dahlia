@@ -23,6 +23,6 @@ typedef struct {
 
 void init_board(Board* b);
 void print_board(const Board* b);
-void set_starting_position(Board* b);
+void clear_board(Board* b);
 
 #endif
