@@ -309,10 +309,13 @@ void generate_pseudo_legal_moves(const Board* board, MoveList* list) {
     }
 }
 
-void generate_legal_moves(Board* board, MoveList* pl_moves, MoveList* legal_moves) {
+void generate_legal_moves(Board* board, MoveList* legal_moves) {
+    MoveList pl_moves;
+    generate_pseudo_legal_moves(board, &pl_moves);
+
     legal_moves->count = 0;
-    for (int i = 0; i < pl_moves->count; i++) {
-        Move move = pl_moves->moves[i];
+    for (int i = 0; i < pl_moves.count; i++) {
+        Move move = pl_moves.moves[i];
         BoardDiff diff;
 
         int side = board->side_to_move;

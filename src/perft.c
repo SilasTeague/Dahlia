@@ -9,14 +9,13 @@
 uint64_t perft(Board* board, int depth) {
     if (depth == 0) return 1;
 
-    MoveList pseudo, legal;
-    generate_pseudo_legal_moves(board, &pseudo);
-    legal.count = 0;
-    generate_legal_moves(board, &pseudo, &legal);
+    MoveList moves;
+    moves.count = 0;
+    generate_legal_moves(board, &moves);
 
     uint64_t nodes = 0;
-    for (int i = 0; i < legal.count; i++) {
-        Move move = legal.moves[i];
+    for (int i = 0; i < moves.count; i++) {
+        Move move = moves.moves[i];
         BoardDiff diff;
         make_move(board, move, &diff);
         nodes += perft(board, depth - 1);
@@ -27,13 +26,12 @@ uint64_t perft(Board* board, int depth) {
 }
 
 void perft_divide(Board* board, int depth) {
-    MoveList pl_moves, legal_moves;
-    generate_pseudo_legal_moves(board, &pl_moves);
-    generate_legal_moves(board, &pl_moves, &legal_moves);
+    MoveList moves;
+    generate_legal_moves(board, &moves);
 
     int total = 0;
-    for (int i = 0; i < legal_moves.count; i++) {
-        Move move = legal_moves.moves[i];
+    for (int i = 0; i < moves.count; i++) {
+        Move move = moves.moves[i];
         BoardDiff diff;
         make_move(board, move, &diff);
         int count = perft(board, depth - 1);

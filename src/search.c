@@ -9,24 +9,25 @@
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 Move find_best_move(Board* board, int depth) {
-    MoveList pl_moves;
-    generate_pseudo_legal_moves(board, &pl_moves);
+    int side = board->side_to_move;
+    MoveList moves;
+    generate_legal_moves(board, &moves);
 
-    MoveList legal_moves;
-    generate_legal_moves(board, &pl_moves, &legal_moves);
+    int best_eval = (side == 0) ? INT_MIN : INT_MAX;
+    Move best_move = {0};
 
-    int best_eval = INT_MIN;
-    Move best_move;
-
-    for (int i = 0; i < legal_moves.count; i++) {
-        Move move = legal_moves.moves[i];
+    for (int i = 0; i < moves.count; i++) {
+        Move move = moves.moves[i];
         Board copy = *board;
         BoardDiff diff;
         make_move(&copy, move, &diff);
 
-        int eval = minimax(&copy, depth - 1, 0);
+        int eval = minimax(&copy, depth - 1, side);
 
-        if (eval > best_eval) {
+        if (side == 0 && eval > best_eval) {
+            best_eval = eval;
+            best_move = move;
+        } else if (side == 1 && eval < best_eval) {
             best_eval = eval;
             best_move = move;
         }
@@ -38,24 +39,31 @@ Move find_best_move(Board* board, int depth) {
 int minimax(Board* board, int depth, int maximizingSide) {
     if (depth == 0) return evaluate_position(board);
 
-    MoveList pl_moves;
-    generate_pseudo_legal_moves(board, &pl_moves);
+    MoveList moves;
+    generate_legal_moves(board, &moves);
 
-    MoveList legal_moves;
-    generate_legal_moves(board, &pl_moves, &legal_moves);
+    if (maximizingSide) {
+        int max_eval = INT_MIN;
+        for (int i = 0; i < moves.count; i++) {
+            Move move = moves.moves[i];
+            Board copy = *board;
+            BoardDiff diff;
+            make_move(&copy, move, &diff);
 
-    int best = (maximizingSide == 1) ? INT_MIN : INT_MAX;
-
-    for (int i = 0; i < legal_moves.count; i++) {
-        Move move = legal_moves.moves[i];
-        Board copy = *board;
-        BoardDiff diff;
-        make_move(&copy, move, &diff);
-
-        int score = minimax(&copy, depth - 1, 1 - maximizingSide);
-
-        best = (maximizingSide == 1) ? MAX(best, score) : MIN(best, score);
+            int eval = minimax(board, depth - 1, 0);
+            max_eval = MAX(eval, max_eval);   
+        }
+        return max_eval;
+    } else {
+        int min_eval = INT_MAX;
+        for (int i = 0; i < moves.count; i++) {
+            Move move = moves.moves[i];
+            Board copy = *board;
+            BoardDiff diff;
+            make_move(&copy, move, &diff);
+            int eval = minimax(board, depth - 1, 1);
+            min_eval = MIN(eval, min_eval);
+        }
+        return min_eval;
     }
-
-    return best;
 }

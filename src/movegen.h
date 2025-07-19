@@ -6,7 +6,7 @@
 
 void generate_pseudo_legal_moves(const Board* board, MoveList* list);
 
-void generate_legal_moves(Board* board, MoveList* pl_moves, MoveList* legal_moves);
+void generate_legal_moves(Board* board, MoveList* legal_moves);
 
 void generate_pawn_moves(const Board* board, MoveList* list, int square);
 void generate_knight_moves(const Board* board, MoveList* list, int square);

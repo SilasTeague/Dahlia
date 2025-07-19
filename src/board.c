@@ -50,7 +50,7 @@ void print_board(const Board* b) {
         }
         printf("\n");
     }
-    printf("  a b c d e f g h");
+    printf("  a b c d e f g h\n");
 }
 
 void clear_board(Board* b) {
