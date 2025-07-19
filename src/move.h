@@ -1,6 +1,8 @@
 #ifndef MOVE_H
 #define MOVE_H
 
+#include "board.h"
+
 typedef struct {
     int from;
     int to;
@@ -16,5 +18,7 @@ typedef enum {
 } PromotionType;
 
 void print_move(const Move);
+Move text_to_move(const Board* board, char* text);
+char* move_to_text(const Move move);
 
 #endif
