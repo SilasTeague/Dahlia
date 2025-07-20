@@ -20,7 +20,7 @@ const char* promotion_names[5] = {
 
 void print_move(const Move move) {
     if (move.promotion != 0) {
-        printf("%s%s (%s)\n", square_names[move.from], square_names[move.to], promotion_names[move.promotion]);
+        printf("%s%s%s\n", square_names[move.from], square_names[move.to], promotion_names[move.promotion]);
     } else {
         printf("%s%s\n", square_names[move.from], square_names[move.to]);
     }
@@ -73,6 +73,8 @@ Move text_to_move(const Board* board, char* text) {
             case 'n': move.promotion = 4; break;
             default: move.promotion = 0; break;
         }
+    } else {
+        move.promotion = 0;
     }
 
     return move;
