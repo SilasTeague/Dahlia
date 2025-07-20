@@ -8,11 +8,11 @@
 #include "make_move.h"
 
 void uci_loop() {
-    char line[512];
+    char line[2048];
 
     Board board;
 
-    while (fgets(line, 512, stdin)) {
+    while (fgets(line, 2048, stdin)) {
         if (strncmp(line, "uci", 3) == 0) {
             printf("id name Dahlia\n");
             fflush(stdout);
