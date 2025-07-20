@@ -15,10 +15,14 @@ void uci_loop() {
     while (fgets(line, 512, stdin)) {
         if (strncmp(line, "uci", 3) == 0) {
             printf("id name Dahlia\n");
+            fflush(stdout);
             printf("id author Silas Teague\n");
+            fflush(stdout);
             printf("uciok\n");
+            fflush(stdout);
         } else if (strncmp(line, "isready", 7) == 0) {
             printf("readyok\n");
+            fflush(stdout);
         } else if (strncmp(line, "position", 8) == 0) {
             char* pointer = line + 9;
             while (*pointer == ' ') pointer++;
@@ -39,34 +43,36 @@ void uci_loop() {
                 }
                 fen_string[count] = '\0';
                 fen_to_board(&board, fen_string);
-                print_board(&board);
             } else if (strncmp(pointer, "startpos", 8) == 0) {
                 init_board(&board);
                 pointer += 8;
             }
 
             if (strstr(pointer, "moves")) {
-                pointer = strstr(pointer, "moves") + 5;
+                pointer = strstr(pointer, "moves") + strlen("moves");
+
                 while (*pointer == ' ') pointer++;
 
-                while (*pointer) {
-                    char move_str[6];
-                    int i = 0;
-                    while (*pointer && *pointer != ' ') {
-                        move_str[i++] = *pointer++;
-                    }
-                    move_str[i] = '\0';
+                Move move;
+                BoardDiff diff;
 
-                    Move move = text_to_move(&board, move_str);
-                    BoardDiff diff;
+                char *token = strtok(pointer, " ");
+
+                while (token) {
+                    printf("%s", token);
+                    move = text_to_move(&board, token);
+                    printf("\n");
+                    print_move(move);
                     make_move(&board, move, &diff);
-                    while (*pointer == ' ') pointer++;
+                    token = strtok(NULL, " ");
                 }
+                print_board(&board);
             }
         } else if (strncmp(line, "go", 2) == 0) {
             Move best_move = find_best_move(&board, 4);
             char* move_text = move_to_text(best_move);
             printf("bestmove %s\n", move_text);
+            fflush(stdout);
         }
             else if (strncmp(line, "quit", 4) == 0) {
             break;
