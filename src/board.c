@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include "board.h"
+#include "eval.h"
 
 void init_board(Board* b) {
     Piece starting_squares[64] = {
@@ -51,6 +52,7 @@ void print_board(const Board* b) {
         printf("\n");
     }
     printf("  a b c d e f g h\n");
+    printf("Evaluation: %d\n", evaluate_position(b));
 }
 
 void clear_board(Board* b) {
