@@ -24,13 +24,10 @@ Move find_best_move(Board* board, int depth) {
 
         int eval = minimax(&copy, depth - 1, side);
 
-        if (side == 0 && eval > best_eval) {
+        if ((side == 0 && eval > best_eval) || (side == 1 && eval < best_eval)) {
             best_eval = eval;
             best_move = move;
-        } else if (side == 1 && eval < best_eval) {
-            best_eval = eval;
-            best_move = move;
-        }
+        } 
     }
 
     return best_move;
