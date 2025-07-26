@@ -63,12 +63,27 @@ Move find_best_move(Board* board, int depth) {
 int minimax(Board* board, int depth, int maximizingPlayer) {
     if (depth == 0) return evaluate_position(board);
 
+    // Check for repetition draw
     if (is_draw_by_repetition(board)) {
-        return 0;
+        return maximizingPlayer ? -100 : 100;
+    }
+
+    //Check for 50 move rule draw
+    if (board->halfmove_clock >= 100) {
+        return maximizingPlayer ? -100 : 100;
     }
 
     MoveList moves;
     generate_legal_moves(board, &moves);
+
+    // Check for checkmate and stalemate
+    if (moves.count == 0) {
+        if (is_check(board, board->side_to_move)) {
+            return maximizingPlayer ? INT_MIN + 1 : INT_MAX - 1;
+        } else {
+            return 0;
+        }
+    }
 
     if (maximizingPlayer) {
         int max_eval = INT_MIN + 1;
