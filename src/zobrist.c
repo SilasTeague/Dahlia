@@ -1,5 +1,10 @@
 #include "zobrist.h"
 
+static uint64_t psq[12][64];
+static uint64_t enpassant[8];
+static uint64_t castling[16];
+static uint64_t side;
+
 // Create a random 64 bit integer from a seed n
 uint64_t random64(uint64_t n) {
     const uint64_t z = 0x9FB21C651E98DF25;

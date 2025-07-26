@@ -6,6 +6,8 @@
 #include "fen.h"
 #include "search.h"
 #include "make_move.h"
+#include "eval.h"
+#include "zobrist.h"
 
 void uci_loop() {
     char line[2048];
@@ -59,17 +61,17 @@ void uci_loop() {
                 char *token = strtok(pointer, " ");
 
                 while (token) {
-                    printf("%s", token);
                     move = text_to_move(&board, token);
-                    printf("\n");
-                    print_move(move);
                     make_move(&board, move, &diff);
+                    add_hash(&board);
                     token = strtok(NULL, " ");
                 }
-                print_board(&board);
             }
         } else if (strncmp(line, "go", 2) == 0) {
             Move best_move = find_best_move(&board, 4);
+            int eval = evaluate_position(&board);
+            printf("Evaluation: %d\n", eval);
+            printf("Hash storage: %d/1024\n", board.zobrist_count + 1);
             char* move_text = move_to_text(best_move);
             printf("bestmove %s\n", move_text);
             fflush(stdout);

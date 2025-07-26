@@ -1,5 +1,7 @@
 #include "eval.h"
+#include "zobrist.h"
 #include <stdlib.h>
+#include <stdint.h>
 
 #define PAWN_VALUE 100
 #define KNIGHT_VALUE 300
@@ -119,6 +121,21 @@ const int kingEvalBlack[64] = {
 int evaluate_position(const Board* board) {
     int evaluation = 0;
 
+    uint64_t current_hash = compute_hash(board);
+    int repetition_count = 0;
+    int repetition_penalty = 0;
+
+    for (int i = 0; i < board->zobrist_count; i++) {
+        if (board->zobrist_history[i] == current_hash) {
+            repetition_count++;
+            
+        }
+    }
+
+    if (repetition_count >= 2) {
+        repetition_penalty = 100; 
+    }
+
     for (int i = 0; i < 64; i++) {
         Piece piece = board->squares[i];
         switch (piece) {
@@ -146,5 +163,5 @@ int evaluate_position(const Board* board) {
 
     
 
-    return evaluation;
+    return (board->side_to_move == 0) ? (evaluation - repetition_penalty) : (evaluation + repetition_penalty);
 }

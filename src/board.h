@@ -6,6 +6,10 @@
 #define CASTLE_B_KINGSIDE 4
 #define CASTLE_B_QUEENSIDE 8
 
+#define MAX_HISTORY 1024
+
+#include <stdint.h>
+
 typedef enum {
     EMPTY=0,
     wP, wN, wB, wR, wQ, wK,
@@ -19,6 +23,8 @@ typedef struct {
     int en_passant_square;
     int halfmove_clock;
     int fullmove_counter;
+    uint64_t zobrist_history[MAX_HISTORY];
+    int zobrist_count;
 } Board;
 
 void init_board(Board* b);

@@ -22,6 +22,7 @@ void init_board(Board* b) {
     b->en_passant_square = -1;
     b->fullmove_counter = 1;
     b->halfmove_clock = 0;
+    b->zobrist_count = 0;
 }
 
 void print_board(const Board* b) {
