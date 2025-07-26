@@ -60,6 +60,7 @@ void clear_board(Board* b) {
     for (int i = 0; i < 64; i++) {
         b->squares[i] = EMPTY;
     }
+    b->castling_rights = 0;
 }
 
 void reset_board_state(Board* b) {
