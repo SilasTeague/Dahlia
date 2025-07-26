@@ -79,9 +79,9 @@ int minimax(Board* board, int depth, int maximizingPlayer) {
     // Check for checkmate and stalemate
     if (moves.count == 0) {
         if (is_check(board, board->side_to_move)) {
-            return maximizingPlayer ? INT_MIN + 1 : INT_MAX - 1;
+            return maximizingPlayer ? (-100000 - depth) : (100000 + depth); // Checkmate
         } else {
-            return 0;
+            return 0; // Stalemate
         }
     }
 
@@ -93,7 +93,7 @@ int minimax(Board* board, int depth, int maximizingPlayer) {
             make_move(board, move, &diff);
             add_hash(board);
 
-            int eval = (moves.count == 0) ? INT_MIN + 1 : minimax(board, depth - 1, 0);
+            int eval = minimax(board, depth - 1, 0);
             max_eval = MAX(eval, max_eval);   
             unmake_move(board, diff);
             remove_hash(board);
@@ -107,7 +107,7 @@ int minimax(Board* board, int depth, int maximizingPlayer) {
             make_move(board, move, &diff);
             add_hash(board);
 
-            int eval = (moves.count == 0) ? INT_MAX - 1 : minimax(board, depth - 1, 1);
+            int eval = minimax(board, depth - 1, 1);
             min_eval = MIN(eval, min_eval);
             unmake_move(board, diff);
             remove_hash(board);
