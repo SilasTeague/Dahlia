@@ -47,7 +47,7 @@ Move find_best_move(Board* board, int depth) {
         make_move(board, move, &diff);
         add_hash(board);
 
-        int eval = minimax(board, depth - 1, side);
+        int eval = minimax(board, depth - 1, side, INT_MIN, INT_MAX);
 
         if ((side == 0 && eval > best_eval) || (side == 1 && eval < best_eval)) {
             best_eval = eval;
@@ -60,7 +60,7 @@ Move find_best_move(Board* board, int depth) {
     return best_move;
 }
 
-int minimax(Board* board, int depth, int maximizingPlayer) {
+int minimax(Board* board, int depth, int maximizingPlayer, int alpha, int beta) {
     if (depth == 0) return evaluate_position(board);
 
     // Check for repetition draw
@@ -92,11 +92,14 @@ int minimax(Board* board, int depth, int maximizingPlayer) {
             BoardDiff diff;
             make_move(board, move, &diff);
             add_hash(board);
-
-            int eval = minimax(board, depth - 1, 0);
-            max_eval = MAX(eval, max_eval);   
+            int eval = minimax(board, depth - 1, 0, alpha, beta);
+            max_eval = MAX(eval, max_eval);
             unmake_move(board, diff);
             remove_hash(board);
+            alpha = MAX(alpha, eval); 
+            if (beta <= alpha) {
+                break;
+            }
         }
         return max_eval;
     } else {
@@ -107,10 +110,14 @@ int minimax(Board* board, int depth, int maximizingPlayer) {
             make_move(board, move, &diff);
             add_hash(board);
 
-            int eval = minimax(board, depth - 1, 1);
+            int eval = minimax(board, depth - 1, 1, alpha, beta);
             min_eval = MIN(eval, min_eval);
             unmake_move(board, diff);
             remove_hash(board);
+            beta = MIN(beta, eval);
+            if (beta <= alpha) {
+                break;
+            }
         }
         return min_eval;
     }

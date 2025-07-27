@@ -68,7 +68,7 @@ void uci_loop() {
                 }
             }
         } else if (strncmp(line, "go", 2) == 0) {
-            Move best_move = find_best_move(&board, 4);
+            Move best_move = find_best_move(&board, 5);
             int eval = evaluate_position(&board);
             printf("Evaluation: %d\n", eval);
             printf("Hash storage: %d/1024\n", board.zobrist_count + 1);

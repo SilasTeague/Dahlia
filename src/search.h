@@ -8,6 +8,6 @@ void add_hash(Board* board);
 void remove_hash(Board* board);
 
 Move find_best_move(Board* board, int depth);
-int minimax(Board* board, int depth, int maximizingPlayer);
+int minimax(Board* board, int depth, int maximizingPlayer, int alpha, int beta);
 
 #endif
