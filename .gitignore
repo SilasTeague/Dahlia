@@ -1,5 +1,5 @@
 .DS_Store
 *.out
-Dahlia
+Dahlia*
 tests-output
 .vscode
