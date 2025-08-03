@@ -10,11 +10,13 @@
 #include "zobrist.h"
 
 void uci_loop() {
-    char line[2048];
+    char *line = NULL;
+    size_t linecap = 0;
+    ssize_t linelen;
 
     Board board;
 
-    while (fgets(line, 2048, stdin)) {
+    while ((linelen = getline(&line, &linecap, stdin)) != -1) {
         if (strncmp(line, "uci", 3) == 0) {
             printf("id name Dahlia\n");
             fflush(stdout);
