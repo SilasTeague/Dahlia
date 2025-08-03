@@ -82,4 +82,5 @@ void uci_loop() {
             break;
         }
     }
+    free(line);
 }
