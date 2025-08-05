@@ -48,7 +48,7 @@ char* move_to_text(const Move move) {
     return move_text;
 }
 
-Move text_to_move(const Board* board, char* text) {
+Move text_to_move(char* text) {
     Move move;
 
     for (int i = 0; i < 64; i++) {

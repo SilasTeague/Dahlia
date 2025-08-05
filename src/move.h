@@ -18,7 +18,7 @@ typedef enum {
 } PromotionType;
 
 void print_move(const Move);
-Move text_to_move(const Board* board, char* text);
+Move text_to_move(char* text);
 char* move_to_text(const Move move);
 
 #endif
