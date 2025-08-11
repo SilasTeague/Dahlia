@@ -1,4 +1,7 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include <stdio.h>
+#include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
 #include "board.h"
@@ -63,7 +66,7 @@ void uci_loop() {
                 char *token = strtok(pointer, " ");
 
                 while (token) {
-                    move = text_to_move(&board, token);
+                    move = text_to_move(token);
                     make_move(&board, move, &diff);
                     add_hash(&board);
                     token = strtok(NULL, " ");
