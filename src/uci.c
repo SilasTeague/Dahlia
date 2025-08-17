@@ -73,7 +73,22 @@ void uci_loop() {
                 }
             }
         } else if (strncmp(line, "go", 2) == 0) {
-            Move best_move = find_best_move(&board, 5);
+            char* pointer = line + 2;
+
+            while (*pointer == ' ') pointer++;
+
+            Move best_move;
+
+            if (strstr(pointer, "depth")) {
+                pointer = strstr(pointer, "depth") + strlen("depth");
+                while (*pointer == ' ') pointer++;
+
+                char *token = strtok(pointer, " ");
+                best_move = find_best_move(&board, atoi(token));
+            } else {
+                best_move = find_best_move(&board, 5);
+            }
+            
             int eval = evaluate_position(&board);
             printf("Evaluation: %d\n", eval);
             printf("Hash storage: %d/1024\n", board.zobrist_count + 1);
