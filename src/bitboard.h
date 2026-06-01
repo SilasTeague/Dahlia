@@ -1,13 +1,10 @@
 #pragma once
 
 #include <cstdint>
-
-// The chess board is 64 squares, so it can be represented by a 64 bit unisgned int
-// We will use LSB = a1 and MSB = h8
-using Bitboard = uint64_t;
+#include "types.h"
 
 class Board {
-	public:
+public:
 
 	Bitboard white_pawns;
 	Bitboard black_pawns;

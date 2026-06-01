@@ -3,8 +3,6 @@
 #include "bitboard.h"
 #include "types.h"
 
-
-
 struct Position {
 	Bitboard pieces[2][6];	// [color][piece]
 	Bitboard aggregates[3]; // [WHITE][BLACK[ALL] 
