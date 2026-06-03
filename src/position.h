@@ -1,6 +1,5 @@
 #pragma once
 
-#include "bitboard.h"
 #include "types.h"
 
 struct Position {
@@ -8,9 +7,9 @@ struct Position {
 	Bitboard aggregates[3]; // [WHITE][BLACK[ALL] 
 
 	Color side_to_move;
-	uint8_t castling_rights;
+	CastlingRights castling_rights;
 	Square en_passant_square;
 
 	uint8_t halfmove_clock;
 	uint16_t fullmove_count;
-}
+};
