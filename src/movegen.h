@@ -4,8 +4,19 @@
 #include "position.h"
 #include "move.h"
 
-Move* generate_pawn_moves(Position position);
+struct MoveList {
+	Move moves[256]; // 218 is theoretical maximum
+	int count = 0;
 
-Move* generate_knight_moves(Position position);
+	void push(const Move& m) { moves[count++] = m; }
+};
 
-Move* generate_sliding_moves(Position position, int* directions);
+void generate_pawn_moves(MoveList& move_list, const Position& position);
+
+void generate_knight_moves(MoveList& move_list, const Position& position);
+
+void generate_sliding_moves(MoveList& move_list, const Position& position, Piece piece);
+
+void generate_pseudo_legal_moves(MoveList& move_list, const Position& position);
+
+
