@@ -8,7 +8,7 @@ struct Position {
 
 	Color side_to_move;
 	CastlingRights castling_rights;
-	Square en_passant_square;
+	Square en_passant_square = NULL_SQUARE;
 
 	uint8_t halfmove_clock;
 	uint16_t fullmove_count;

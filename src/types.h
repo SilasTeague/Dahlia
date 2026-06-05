@@ -46,7 +46,7 @@ enum Square : u8 {
 
 
 enum Color : u8 {
-	WHITE = 0, BLACK
+	WHITE = 0, BLACK, ALL
 };
 
 enum CastlingRights : u8 {
