@@ -1,6 +1,7 @@
 #include "movegen.h"
 #include "types.h"
 
+//TODO: Make use of pawn attack tables
 void generate_pawn_moves(MoveList &move_list, const Position &position) {
 	Color side = position.side_to_move;
 	const Bitboard pawn_bb = position.pieces[side][PAWN];
