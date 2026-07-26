@@ -47,13 +47,62 @@ void init_attack_tables() {
 	}
 }
 
+static Bitboard sliding_attacks(Square square, Bitboard occupied, const int* offsets, int num_offsets) {
+	Bitboard attacks = 0;
+	int start_file = square % 8;
+
+	for (int d = 0; d < num_offsets; d++) {
+		int offset = offsets[d];
+		int prev_file = start_file;
+		int s = square;
+
+		while (true) {
+			s += offset;
+			if (s < 0 || s > 63) break;
+
+			int file = s % 8;
+			// A legal single ray step changes file by at most one square;
+			// anything else means the step wrapped around a board edge.
+			int file_diff = file - prev_file;
+			if (file_diff < 0) file_diff = -file_diff;
+			if (file_diff > 1) break;
+			prev_file = file;
+
+			Bitboard bit = 1ULL << s;
+			attacks |= bit;
+			if (occupied & bit) break;
+		}
+	}
+
+	return attacks;
+}
+
+constexpr int ROOK_OFFSETS[]   = {8, -8, 1, -1};
+constexpr int BISHOP_OFFSETS[] = {9, -9, 7, -7};
+
+Bitboard rook_attacks(Square square, Bitboard occupied) {
+	return sliding_attacks(square, occupied, ROOK_OFFSETS, 4);
+}
+
+Bitboard bishop_attacks(Square square, Bitboard occupied) {
+	return sliding_attacks(square, occupied, BISHOP_OFFSETS, 4);
+}
+
+Bitboard queen_attacks(Square square, Bitboard occupied) {
+	return rook_attacks(square, occupied) | bishop_attacks(square, occupied);
+}
+
 bool is_attacked(const Position &pos, Square square) {
-	Bitboard location = 1ULL << square;
-	Color attacking_side = static_cast<Color>(pos.side_to_move ^ 1);
+	Color side = pos.side_to_move;
+	Color attacking_side = static_cast<Color>(side ^ 1);
+	Bitboard occupied = pos.aggregates[ALL];
 
-	Bitboard knight_offsets = knight_attacks[square];
-	if (knight_offsets & pos.pieces[attacking_side][KNIGHT]) return true;
+	if (knight_attacks[square] & pos.pieces[attacking_side][KNIGHT]) return true;
+	if (king_attacks[square] & pos.pieces[attacking_side][KING]) return true;
 
+	if (pawn_attacks[side][square] & pos.pieces[attacking_side][PAWN]) return true;
+	if (bishop_attacks(square, occupied) & (pos.pieces[attacking_side][BISHOP] | pos.pieces[attacking_side][QUEEN])) return true;
+	if (rook_attacks(square, occupied) & (pos.pieces[attacking_side][ROOK] | pos.pieces[attacking_side][QUEEN])) return true;
 
-	
+	return false;
 }

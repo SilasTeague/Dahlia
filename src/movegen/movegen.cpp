@@ -1,4 +1,5 @@
 #include "movegen/movegen.h"
+#include "movegen/attacks.h"
 #include "core/types.h"
 
 //TODO: Make use of pawn attack tables
@@ -147,4 +148,98 @@ void generate_pawn_moves(MoveList &move_list, const Position &position) {
 		double_push &= double_push - 1;
 	}
 
+}
+
+void generate_knight_moves(MoveList &move_list, const Position &position) {
+	Color side = position.side_to_move;
+	Bitboard knights = position.pieces[side][KNIGHT];
+	Bitboard own = position.aggregates[side];
+
+	while (knights) {
+		Square from = (Square) __builtin_ctzll(knights);
+		Bitboard targets = knight_attacks[from] & ~own;
+
+		while (targets) {
+			Square to = (Square) __builtin_ctzll(targets);
+			move_list.push({from, to});
+			targets &= targets - 1;
+		}
+
+		knights &= knights - 1;
+	}
+}
+
+void generate_sliding_moves(MoveList &move_list, const Position &position, Piece piece) {
+	Color side = position.side_to_move;
+	Bitboard pieces = position.pieces[side][piece];
+	Bitboard own = position.aggregates[side];
+	Bitboard occupied = position.aggregates[ALL];
+
+	while (pieces) {
+		Square from = (Square) __builtin_ctzll(pieces);
+
+		Bitboard targets = (piece == BISHOP) ? bishop_attacks(from, occupied)
+			: (piece == ROOK) ? rook_attacks(from, occupied)
+			: queen_attacks(from, occupied);
+		targets &= ~own;
+
+		while (targets) {
+			Square to = (Square) __builtin_ctzll(targets);
+			move_list.push({from, to});
+			targets &= targets - 1;
+		}
+
+		pieces &= pieces - 1;
+	}
+}
+
+void generate_king_moves(MoveList &move_list, const Position &position) {
+	Color side = position.side_to_move;
+	Bitboard king_bb = position.pieces[side][KING];
+	if (!king_bb) return;
+
+	Square from = (Square) __builtin_ctzll(king_bb);
+	Bitboard own = position.aggregates[side];
+	Bitboard targets = king_attacks[from] & ~own;
+
+	while (targets) {
+		Square to = (Square) __builtin_ctzll(targets);
+		move_list.push({from, to});
+		targets &= targets - 1;
+	}
+
+	// Castling
+	Bitboard occupied = position.aggregates[ALL];
+	if (side == WHITE) {
+		if ((position.castling_rights & WHITE_00) &&
+			!(occupied & ((1ULL << f1) | (1ULL << g1))) &&
+			!is_attacked(position, e1) && !is_attacked(position, f1) && !is_attacked(position, g1)) {
+			move_list.push({e1, g1});
+		}
+		if ((position.castling_rights & WHITE_000) &&
+			!(occupied & ((1ULL << b1) | (1ULL << c1) | (1ULL << d1))) &&
+			!is_attacked(position, e1) && !is_attacked(position, d1) && !is_attacked(position, c1)) {
+			move_list.push({e1, c1});
+		}
+	} else {
+		if ((position.castling_rights & BLACK_00) &&
+			!(occupied & ((1ULL << f8) | (1ULL << g8))) &&
+			!is_attacked(position, e8) && !is_attacked(position, f8) && !is_attacked(position, g8)) {
+			move_list.push({e8, g8});
+		}
+		if ((position.castling_rights & BLACK_000) &&
+			!(occupied & ((1ULL << b8) | (1ULL << c8) | (1ULL << d8))) &&
+			!is_attacked(position, e8) && !is_attacked(position, d8) && !is_attacked(position, c8)) {
+			move_list.push({e8, c8});
+		}
+	}
+}
+
+void generate_pseudo_legal_moves(MoveList &move_list, const Position &position) {
+	generate_pawn_moves(move_list, position);
+	generate_knight_moves(move_list, position);
+	generate_sliding_moves(move_list, position, BISHOP);
+	generate_sliding_moves(move_list, position, ROOK);
+	generate_sliding_moves(move_list, position, QUEEN);
+	generate_king_moves(move_list, position);
 }
