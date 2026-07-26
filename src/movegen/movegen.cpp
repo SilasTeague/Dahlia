@@ -1,5 +1,5 @@
-#include "movegen.h"
-#include "types.h"
+#include "movegen/movegen.h"
+#include "core/types.h"
 
 //TODO: Make use of pawn attack tables
 void generate_pawn_moves(MoveList &move_list, const Position &position) {

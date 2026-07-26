@@ -1,24 +1,23 @@
-CXX := g++
-CXXFLAGS := -std=c++20 -Wall -Wextra -O2 -Iinclude
+# Thin convenience wrapper around CMake (see docs/adr/0002-cmake-migration.md).
+# `cmake --preset <name>` is the source of truth; this just saves typing.
 
-SRC_DIR := src
-SRCS := $(wildcard $(SRC_DIR)/*.cpp)
-OBJS := $(SRCS:.cpp=.o)
+PRESET ?= debug
 
-TARGET := Dahlia
+all: build
 
-all: $(TARGET)
+configure:
+	cmake --preset $(PRESET)
 
-$(TARGET): $(OBJS)
-	$(CXX) $(OBJS) -o $(TARGET)
+build: configure
+	cmake --build --preset $(PRESET)
 
-$(SRC_DIR)/%.o: $(SRC_DIR)/%.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+test: build
+	ctest --preset $(PRESET)
+
+run: build
+	./build/$(PRESET)/dahlia
 
 clean:
-	rm -f $(OBJS) $(TARGET)
+	rm -rf build
 
-run: $(TARGET)
-	./$(TARGET)
-
-.PHONY: all clean run
+.PHONY: all configure build test run clean

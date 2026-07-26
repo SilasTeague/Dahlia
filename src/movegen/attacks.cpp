@@ -1,5 +1,5 @@
-#include "attacks.h"
-#include "types.h"
+#include "movegen/attacks.h"
+#include "core/types.h"
 
 Bitboard knight_attacks[64];
 Bitboard king_attacks[64];
