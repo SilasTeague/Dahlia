@@ -1,7 +1,7 @@
 #pragma once
 
-#include "types.h"
-#include "position.h"
+#include "core/types.h"
+#include "position/position.h"
 
 extern Bitboard knight_attacks[64];
 extern Bitboard king_attacks[64];

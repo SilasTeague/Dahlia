@@ -2,7 +2,7 @@
 #include <iostream>
 #include <string>
 
-#include "movegen.h"
+#include "movegen/movegen.h"
 
 
 int main() {

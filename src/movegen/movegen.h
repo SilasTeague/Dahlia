@@ -1,8 +1,8 @@
 #pragma once
 
-#include "types.h"
-#include "position.h"
-#include "move.h"
+#include "core/types.h"
+#include "position/position.h"
+#include "core/move.h"
 
 struct MoveList {
 	Move moves[256]; // 218 is theoretical maximum
