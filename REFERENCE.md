@@ -44,8 +44,6 @@ Dahlia/
 ├── REFERENCE.md        # this document
 ├── README.md                  # project pitch, build instructions, quick demo
 ├── LICENSE                     # MIT
-├── .clang-format
-├── .clang-tidy
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml              # build + test matrix on every push/PR
@@ -100,8 +98,6 @@ util  ←  core  ←  movegen  ←  position  ←  search  ←  uci
 - `search` depends on `position`, `movegen`, `eval`.
 - `uci` depends on everything below it; nothing depends on `uci`.
 
-A CI lint step (or `clang-tidy` include check / simple script) should enforce that headers never `#include` "upward" against this graph. This is worth having explicitly because chess engines are notorious for turning into one giant mutually-recursive blob — the whole point of the module split is to keep `movegen` and `eval` unit-testable in isolation.
-
 ## 1.2 Naming Conventions
 
 | Element | Convention | Example |
@@ -135,8 +131,6 @@ Target standard: **C++20** (already in use). Use C++20 features deliberately, no
 - No `using namespace std;` in headers. `using namespace` is acceptable inside a narrow `.cpp` function body only if it meaningfully reduces noise.
 - Header hygiene: `#pragma once` (already the project's convention), forward-declare where possible to cut compile times.
 - Prefer `enum class` everywhere (see 1.2) except for bit-flag types like `CastlingRights`, where a plain `enum` with explicit bitwise operators (or a small `Flags<T>` wrapper) is acceptable and arguably clearer.
-- Format via `clang-format` (LLVM-derived style, tabs vs spaces to match current code's tab indentation — pin this in `.clang-format` so it's not a matter of taste per-PR).
-- Static analysis via `clang-tidy` in CI (warnings-as-errors for a curated, deliberately-chosen subset of checks — not the full default set, which is noisy for chess-engine bit-twiddling code).
 
 ## 1.4 Documentation Standards
 
@@ -240,7 +234,6 @@ Keep the existing `Makefile` as a thin convenience wrapper (`make` → invokes C
 4. Run perft suite (bounded depth for CI time budget).
 5. Run ASan/UBSan build + reduced test suite on at least one matrix leg.
 6. Upload build artifacts / test logs.
-7. (Optional, once stable) `clang-tidy` and `clang-format --check` as a lint job.
 
 `benchmark.yml` — triggered by **changed paths**, not by a commit-message tag or convention the developer has to remember (see 3.11 for the rationale): any push/PR touching `src/movegen/`, `src/position/`, `src/search/`, `src/eval/`, or `bench/` itself runs the full suite; a push touching only `docs/`, `README.md`, or similar non-engine paths does not. Also runnable manually (`workflow_dispatch`) and on a weekly schedule as a noise/drift check independent of any single commit.
 1. Build `Release` with fixed flags on a consistent runner.
@@ -585,7 +578,7 @@ Every milestone must leave `master` in a working, UCI-playable state (even Miles
 
 ### Milestone 0: Project Scaffolding
 - **Goals:** establish the engineering foundation before chess logic accumulates further in the flat, ad hoc layout.
-- **Deliverables:** CMake build (2.1), directory restructure (1.1), `.clang-format`/`.clang-tidy`, GitHub Actions `ci.yml` skeleton (build-only initially), Catch2 wired in with a trivial passing test, this reference document committed.
+- **Deliverables:** CMake build (2.1), directory restructure (1.1), GitHub Actions `ci.yml` skeleton (build-only initially), Catch2 wired in with a trivial passing test, this reference document committed.
 - **Benchmarks:** none functional yet; confirm `bench/` scaffolding builds an empty/trivial Google Benchmark target.
 - **Tests:** one placeholder unit test per planned module, to lock in the directory/target structure.
 - **Success criteria:** `cmake --preset debug && cmake --build build && ctest` succeeds on a clean checkout on at least two machines/compilers (or CI matrix legs).
@@ -687,7 +680,7 @@ Record contested decisions here as they're made, newest first. Full-form ADRs fo
 | 2026-07-25 | Feature branch + PR for every change, including solo-dev work | See 1.5 | — (settled here, no separate ADR needed) |
 | 2026-07-25 | Lazy-SMP and opening-book/tuner are committed post-M7 stretch goals; NNUE and Syzygy are explicitly out of scope for now | See [Beyond Milestone 7](#beyond-milestone-7-explicitly-futurestretch) | — |
 | 2026-07-25 | Pseudo-legal generation + legality filter in make_move, vs. fully legal movegen | See 3.3 | `docs/adr/0001-*.md` (to be written at implementation time) |
-| _(pending)_ | CMake vs. retaining Makefile | See 2.1 | `docs/adr/0002-*.md` |
+| 2026-07-26 | CMake is the build system of record; Makefile kept only as a thin wrapper delegating to `cmake`/`ctest` presets | See 2.1 | `docs/adr/0002-cmake-migration.md` |
 
 ## Appendix C.1 — Resolved (2026-07-25)
 
