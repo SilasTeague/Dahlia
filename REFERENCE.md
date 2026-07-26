@@ -54,23 +54,14 @@ Dahlia/
 │   ├── CompilerWarnings.cmake
 │   ├── Sanitizers.cmake
 │   └── FetchDeps.cmake         # Catch2, benchmark, etc.
-├── include/
-│   └── dahlia/                 # public headers, mirror src/ module names
-│       ├── core/                (types, bitboard, square, move)
-│       ├── movegen/             (attacks, magics, generator)
-│       ├── position/            (Position, Zobrist, make/unmake)
-│       ├── search/               (search, tt, ordering, timeman)
-│       ├── eval/
-│       ├── uci/
-│       └── util/                (logging, cli, string utils)
-├── src/                         # .cpp implementations, mirrors include/dahlia
-│   ├── core/
-│   ├── movegen/
-│   ├── position/
-│   ├── search/
+├── src/                         # .h/.cpp colocated per module
+│   ├── core/                    (types, bitboard, square, move)
+│   ├── movegen/                 (attacks, magics, generator)
+│   ├── position/                (Position, Zobrist, make/unmake)
+│   ├── search/                  (search, tt, ordering, timeman)
 │   ├── eval/
 │   ├── uci/
-│   ├── util/
+│   ├── util/                    (logging, cli, string utils)
 │   └── main.cpp
 ├── tests/
 │   ├── unit/                    # Catch2 unit tests, one file per module
@@ -199,10 +190,12 @@ Benchmarking is architecture, not an afterthought bolted on when something feels
 
 - **Google Benchmark** (`bench/microbench`) for microbenchmarks: magic lookup latency, move generation for a batch of representative positions, make/unmake cost, TT probe/store cost, evaluation cost.
 - **Search benchmark suite** (`bench/search_bench`): a fixed set of representative positions (opening/middlegame/endgame mix) run to a fixed node budget or fixed time, recording nodes-per-second, depth reached, and (once comparable) node count to reach a given depth — the last one is what actually tells you a pruning/ordering change helped, independent of machine speed.
-- **Every benchmark result that matters is committed** as JSON under `bench/results/`, one file per run, named with date + git short-hash, so history is diffable and plottable later (a simple script or notebook can turn this into a chart for the portfolio narrative — "nodes/sec over the project's lifetime" is a great README graphic).
+- **Every benchmark result that matters is committed** as JSON under `bench/results/`, one file per run, named with date + git short-hash, so history is diffable and plottable later (a simple script or notebook can turn this into a chart for the portfolio narrative — "nodes/sec over the project's lifetime" is a great README graphic). See [3.11](#311-benchmark--regression-framework-bench) for the full history/schema design.
 - **Before/after discipline**: any PR claiming a performance improvement includes the benchmark numbers before and after in the PR description, on the same machine/build flags, ideally with the sanitizer/debug build excluded (benchmark only `Release`/`RelWithDebInfo`).
 - **No micro-optimization without a benchmark proving the bottleneck.** Profile first (`perf`/Instruments/`valgrind --tool=callgrind`), then optimize the measured hot path, then re-benchmark to confirm the win and check for regressions elsewhere.
-- CI runs functional tests on every push; a separate, less-frequent workflow (`benchmark.yml`, manually triggered or scheduled, since benchmark noise on shared CI runners is real) runs the benchmark suite and can fail/flag if nodes/sec regresses beyond a tolerance band versus the last committed baseline.
+- CI runs functional tests on every push; a separate workflow (`benchmark.yml`) runs the benchmark suite and can fail/flag if nodes/sec regresses beyond a tolerance band versus the last committed baseline. See 3.11 for exactly when this workflow fires.
+
+**Decision (2026-07-26): build in strict stages — Correctness → Measurement → Optimization, never the reverse.** A basic, unoptimized-but-correct implementation of a subsystem should exist and pass perft/unit tests *before* the benchmark harness for that subsystem is built out, and the benchmark harness must exist and have a recorded baseline *before* any optimization work on that subsystem begins. Optimizing first and measuring after produces "I heard X is faster" engineering; measuring first produces "commit `abc123` reduced move generation from 8.1ns to 2.9ns and increased NPS 31%" engineering — the latter is the entire point of [Part IV](#part-iv--metrics-catalog--benchmarking). Concretely this means: it is acceptable, even expected, for early milestones (see [Roadmap](#part-v--staged-roadmap)) to ship deliberately non-optimal implementations (e.g., simple mailbox-style sliding attacks before magic bitboards) as long as they are correct and perft-clean — the harness in 3.11 is what turns the later swap into a measured, citable win rather than a vibes-based one.
 
 ---
 
@@ -249,11 +242,12 @@ Keep the existing `Makefile` as a thin convenience wrapper (`make` → invokes C
 6. Upload build artifacts / test logs.
 7. (Optional, once stable) `clang-tidy` and `clang-format --check` as a lint job.
 
-`benchmark.yml` — manually triggered (`workflow_dispatch`) or scheduled weekly:
+`benchmark.yml` — triggered by **changed paths**, not by a commit-message tag or convention the developer has to remember (see 3.11 for the rationale): any push/PR touching `src/movegen/`, `src/position/`, `src/search/`, `src/eval/`, or `bench/` itself runs the full suite; a push touching only `docs/`, `README.md`, or similar non-engine paths does not. Also runnable manually (`workflow_dispatch`) and on a weekly schedule as a noise/drift check independent of any single commit.
 1. Build `Release` with fixed flags on a consistent runner.
-2. Run `bench/microbench` and `bench/search_bench`.
-3. Compare against last committed baseline in `bench/results/`; post a summary (job summary / PR comment) showing deltas.
-4. Commit new baseline only on explicit approval (not auto-committed from CI), to keep the history meaningful rather than noisy.
+2. Run `bench/microbench` and `bench/search_bench` (see 3.11 for micro vs. macro distinction), each multiple iterations, reporting median.
+3. Emit a machine-readable JSON result (schema in 3.11) tagged with commit hash, compiler, and CPU; append it to `bench/results/history/`.
+4. Compare against the last committed baseline; post a summary (job summary / PR comment) showing deltas, flagging only changes beyond a ±5% tolerance band as likely meaningful (raw CI-runner noise is real — see 3.11).
+5. Commit new *baseline* only on explicit approval (not auto-committed from CI); the per-commit history file itself, by contrast, **is** auto-committed/appended by the workflow, since its entire value is being an unedited historical record.
 
 ## 2.4 Logging & Diagnostics
 
@@ -512,16 +506,49 @@ class Search {
 
 **Implementation order:** minimal UCI (enough to respond to `uci`/`isready`/`position`/`go`/`bestmove` with a legal random or fixed-depth move) should exist very early (Milestone 1/2) so the engine is GUI-testable from early on, even before search is any good — "it plays a legal game in a real GUI" is a strong, demoable milestone.
 
-## 3.11 Benchmarking Harness (`bench/`)
+## 3.11 Benchmark & Regression Framework (`bench/`)
 
-**Purpose:** Make every performance claim about Dahlia falsifiable and reproducible — this is as much a portfolio artifact as it is an engineering tool.
+**Purpose:** Make every performance claim about Dahlia falsifiable and reproducible, and — just as important — catch *accidental* performance regressions that correctness tests can't see. Deliberately not called a "performance monitoring suite": monitoring implies watching one number go up; this framework's job is equally to notice when a change that passes perft and unit tests quietly makes the engine 18% slower. This is as much a portfolio artifact (a plottable, citable history of the engine's evolution) as it is an engineering tool.
 
-**Responsibilities:** see 1.7 for philosophy. Concretely, three kinds of benchmark:
-- **Microbenchmarks** (Google Benchmark): isolated hot functions — magic attack lookup, `make_move`/`unmake_move`, `evaluate()`, TT probe/store, move list generation for a battery of representative positions (opening/tactical/endgame).
-- **Search benchmarks**: fixed position set, fixed node or time budget, tracking nodes/sec, depth reached, and (the most meaningful long-run metric) nodes-to-reach-depth-N for a fixed position, which isolates search-quality improvements from raw hardware/implementation speed.
-- **Strength benchmarks** (once two versions exist worth comparing): SPRT (Sequential Probability Ratio Test) matches via `cutechess-cli` against the previous committed version and/or reference engines, using `tools/sprt/`. This is the actual "did this change make the engine better at chess" signal, and it is a genuinely separate question from nodes/sec — a change can increase NPS and decrease strength (e.g., an unsound pruning heuristic), so both must be tracked.
+**Responsibilities:** see 1.7 for the correctness-then-measurement-then-optimization philosophy. Four categories of thing this framework tracks, only the first two of which run automatically per-commit:
 
-**Implementation order:** microbenchmark scaffolding as early as Milestone 0/1 (even trivial ones), search benchmarks once negamax exists, SPRT tooling once there's a second version worth comparing against (roughly Milestone 3+).
+1. **Correctness** (always run, every push — this is `ci.yml`, not `benchmark.yml`): perft at CI-budget depth, known tactical positions, FEN round-trip, move legality, hash consistency, repetition detection. Cheap enough to never gate behind path-filtering.
+2. **Performance** (run on `benchmark.yml`, gated by changed paths — see below): nodes/sec, move generation time, search speed, evaluation speed, TT probe/store latency and hit rate, memory usage, startup latency.
+3. **Engine strength** (SPRT via `cutechess-cli`/`tools/sprt`, run manually/on-demand, not per-commit): too expensive for every push. A change can raise NPS and lower strength (e.g., an unsound pruning heuristic) or vice versa — these are genuinely different questions, both tracked, never conflated.
+4. **Profiling-derived signals** (periodic/manual, not gated): move-ordering cutoff %, effective branching factor, null-move cutoff rate, LMR re-search rate, TT cutoff %, quiescence node share, eval-cache hit rate. Not CI-gated pass/fail metrics — these are the "fascinating graphs" category, consumed via `docs/profiling.md` sessions rather than automated thresholds.
+
+**Two kinds of performance benchmark, not one** (both matter — they catch different classes of regression):
+- **Microbenchmarks** (Google Benchmark, `bench/microbench`): isolated hot functions — magic attack lookup, `make_move`/`unmake_move`, `evaluate()`, TT probe/store, move list generation for a battery of representative positions (opening/tactical/endgame). Millisecond-scale, isolate a change to one subsystem.
+- **Macrobenchmarks** (`bench/search_bench`): the whole engine — fixed position set (opening/middlegame/endgame/tactical mix), fixed node or time budget, tracking nodes/sec, depth reached, and (the most meaningful long-run metric) nodes-to-reach-depth-N, which isolates search-quality improvements from raw hardware/implementation speed. Necessary because a microbenchmark can get faster in isolation while the whole engine gets slower due to cache pressure or overhead introduced elsewhere — a macrobenchmark is the only thing that would catch that.
+
+**Decision (2026-07-26): trigger `benchmark.yml` by changed source paths, not by a commit-message/PR tag.** The original idea considered a `(perft)`-style commit tag to mark performance-relevant commits, so the (expensive) benchmark suite only runs when a human flags it. Rejected in favor of path-based triggering (any push touching `src/movegen/`, `src/position/`, `src/search/`, `src/eval/`, or `bench/`) because it doesn't rely on a developer remembering to tag correctly — a forgotten tag on a real performance-relevant commit is a silent gap in the regression history, whereas path filtering fires deterministically off what actually changed. A manual `workflow_dispatch` trigger remains available for the rare case of wanting to force a run on a docs-only or non-matched commit (e.g., a runner/toolchain change).
+
+**Per-commit history, not just a rolling baseline:** every `benchmark.yml` run appends one machine-readable result to `bench/results/history/`, regardless of whether it becomes the new approved baseline. This is what makes "nodes/sec over the project's lifetime" a real, plottable dataset rather than a single current number — see 1.7 and the Milestone 7 "historical benchmark chart" deliverable.
+
+Filename convention: `bench/results/history/<date>-<short-hash>.json`. Schema (illustrative, not final — extend as new metrics are added, but keep it flat/machine-parseable):
+
+```json
+{
+  "commit": "8d12a91",
+  "timestamp": "2026-07-26T14:03:00Z",
+  "compiler": "clang-18",
+  "build": "Release",
+  "cpu": "Apple M-series / x86_64 model string",
+  "benchmarks": {
+    "move_generation": { "rook_ns": 2.3, "bishop_ns": 2.1, "queen_ns": 2.4 },
+    "search": { "nodes_per_second": 134122991, "depth": 9 },
+    "perft": { "depth5_ms": 192, "depth6_ms": 1202 }
+  }
+}
+```
+
+**Noise discipline** (performance measurements are notoriously noisy — a naive per-commit comparison will cry wolf constantly and train everyone to ignore it):
+- Run each benchmark multiple iterations per commit; report median, not a single sample.
+- Benchmark only `Release`/`RelWithDebInfo` builds with fixed, recorded compiler flags — never Debug/sanitizer builds.
+- Run on a consistent runner/machine where possible; record compiler version and CPU model in every result file regardless, so cross-machine noise is at least explainable after the fact.
+- Only flag a delta as a likely-meaningful regression/improvement above a tolerance band (±5% as a starting point, tune once real history exists); smaller deltas are logged but not flagged.
+
+**Implementation order:** microbenchmark scaffolding as early as Milestone 0/1 (even trivial ones), search/macro benchmarks once negamax exists, the path-triggered `benchmark.yml` + history-file workflow as soon as there are at least two commits worth comparing (roughly Milestone 1–2), SPRT tooling once there's a second version worth comparing strength against (roughly Milestone 3+).
 
 ---
 
@@ -655,6 +682,7 @@ Record contested decisions here as they're made, newest first. Full-form ADRs fo
 
 | Date | Decision | Summary | ADR |
 |---|---|---|---|
+| 2026-07-26 | Stage subsystem work as Correctness → Measurement → Optimization; benchmark suite triggers on changed source paths, not a commit tag | See 1.7, 3.11 | — (settled here, no separate ADR needed) |
 | 2026-07-25 | Colocated `.h`/`.cpp` per module in `src/`, no separate `include/` tree | See 1.1 | — (settled here, no separate ADR needed) |
 | 2026-07-25 | Feature branch + PR for every change, including solo-dev work | See 1.5 | — (settled here, no separate ADR needed) |
 | 2026-07-25 | Lazy-SMP and opening-book/tuner are committed post-M7 stretch goals; NNUE and Syzygy are explicitly out of scope for now | See [Beyond Milestone 7](#beyond-milestone-7-explicitly-futurestretch) | — |
@@ -672,6 +700,8 @@ Record contested decisions here as they're made, newest first. Full-form ADRs fo
 | `Move` representation | **Keep the current plain struct** (§3.2); packing to 16-bit tracked as a separate GitHub issue, not committed here |
 | Merge policy | **Judgment call, as originally written** — squash trivial branches, regular-merge meaningful ones |
 | Coverage gating | **Reported in CI, not gated on a percentage**, as originally written |
+| Benchmark trigger mechanism | **Path-based** (changed files under `src/movegen/`, `src/position/`, `src/search/`, `src/eval/`, `bench/`), not a commit-message/PR tag — see 3.11 |
+| Benchmark result history | **Every `benchmark.yml` run auto-commits a JSON file** to `bench/results/history/`; approving a new *baseline* remains a manual step — see 3.11 |
 
 No open items remain in this appendix. Future undecided questions should be added here as they arise.
 
