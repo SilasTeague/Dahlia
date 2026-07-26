@@ -1,0 +1,41 @@
+{
+  "commit": "7ae0900",
+  "timestamp": "2026-07-26T17:30:38Z",
+  "compiler": "/usr/bin/c++",
+  "build": "RelWithDebInfo",
+  "cpu": "arm",
+  "benchmarks": {
+    "microbench": [
+      {
+        "name": "BM_SquareBBShift",
+        "real_time": 0.3504773867200621,
+        "cpu_time": 0.3205578432190504,
+        "time_unit": "ns"
+      },
+      {
+        "name": "BM_RookAttacksLookup",
+        "real_time": 8.66554505134726,
+        "cpu_time": 8.646298554105243,
+        "time_unit": "ns"
+      },
+      {
+        "name": "BM_BishopAttacksLookup",
+        "real_time": 5.419786791519707,
+        "cpu_time": 5.417550510604948,
+        "time_unit": "ns"
+      },
+      {
+        "name": "BM_QueenAttacksLookup",
+        "real_time": 14.524076030015594,
+        "cpu_time": 14.508068477915534,
+        "time_unit": "ns"
+      },
+      {
+        "name": "BM_GeneratePseudoLegalMoves_StartPosition",
+        "real_time": 81.20381185847481,
+        "cpu_time": 81.1425064498603,
+        "time_unit": "ns"
+      }
+    ]
+  }
+}
