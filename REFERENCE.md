@@ -26,7 +26,7 @@ Dahlia is a UCI-compatible chess engine written in modern C++, built from scratc
 
 > Prefer the option that best balances performance, maintainability, educational value, engineering quality, and portfolio impact — in that order only when a clear winner exists on the first four; otherwise favor the more instructive, better-documented option.
 
-In practice this means: hand-rolled magic bitboards over a pulled-in library (educational value + control), a real benchmark harness before micro-optimizing (measurable engineering), and comments/docs that explain *why* a nonstandard chess-programming trick works, not just that it does.
+In practice this means: hand-rolled sliding-piece attack generation over a pulled-in library (educational value + control) — starting with a simple loop/bit-shift ray walker, with magic bitboards as a deliberate, benchmarked future upgrade rather than a Milestone 1 requirement — a real benchmark harness before micro-optimizing (measurable engineering), and comments/docs that explain *why* a nonstandard chess-programming trick works, not just that it does.
 
 This document exists so future sessions (with Claude or otherwise) do not need the rationale re-explained. **Do not write implementation code before checking whether this document already made the relevant decision.**
 
@@ -321,7 +321,8 @@ struct Move {
 
 **Responsibilities:**
 - Precomputed attack tables for non-sliding pieces (knight, king, pawn attacks) via `consteval`/compile-time generation.
-- **Magic bitboards** for sliding pieces (bishop/rook, queen = union).
+- **Loop/bit-shift ray-walk attacks** for sliding pieces (bishop/rook, queen = union). Given an occupancy bitboard, walk each of the piece's 4 directions one square at a time (with a per-step file-wrap guard), stopping after including the first occupied square. No precomputed magic tables in this phase.
+- **Decision (2026-07-26): defer magic bitboards past Milestone 1.** A hand-rolled offline magic-number search + fancy-magic lookup table is real engineering value, but it is exactly the kind of thing [1.7](#17-benchmarking-philosophy)'s Correctness → Measurement → Optimization staging says to defer: get pseudo-legal movegen correct and perft-clean with the simplest correct sliding-attack implementation first, put a benchmark baseline in place (loop-based lookup latency, [Part IV](#part-iv--metrics-catalog--benchmarking)), and only then swap in magics as a measured optimization with a citable before/after ns delta. Tracked as a post-Milestone-1 upgrade, not abandoned — see the Future Extensions note below.
 - **Decision (2026-07-25):** pseudo-legal generation + legality filter during `make_move` (king-safety check), not fully legal generation up front. Generate pseudo-legal moves fast, then confirm legality via a fast "does this leave my king in check" test integrated into `make_move`/a dedicated `is_legal(Move)` check — the standard modern approach (see Stockfish), keeping the hot movegen loop simpler and more benchmarkable in isolation, at the cost of slightly more complex `make/unmake`. Write this up as `docs/adr/0001-pseudo-legal-movegen.md` at implementation time.
 - Provide both "generate all pseudo-legal" and "generate captures/checks only" (for quiescence search) entry points.
 
@@ -336,12 +337,13 @@ namespace movegen {
 
 **Internal data structures:**
 - Precomputed knight/king/pawn-attack tables (`std::array<Bitboard, 64>`).
-- Magic tables: per-square magic number, mask, shift, and pointer/offset into a shared attack table (classic "fancy magic bitboards" layout — single contiguous array indexed via precomputed offsets minimizes memory and improves cache behavior vs. one array per square).
-- Magic numbers: generate via a one-time offline search (documented, reproducible tool under `tools/`), checked into source as constants — do not regenerate at runtime (startup-time metric matters).
+- No sliding-attack tables in this phase: `rook_attacks(Square, Bitboard occupied)` / `bishop_attacks(...)` / `queen_attacks(...)` compute the result on every call by walking rays over the live occupancy bitboard. This is intentionally the "obviously correct" O(board size) implementation, not the O(1) one.
 
-**Future extensions:** PEXT-based attack lookup (`__builtin_ia32_pext` / `_pext_u64`, BMI2) as a faster alternative to magic multiplication on supported hardware, selected via a compile-time or runtime CPU-feature switch — a great "measurable optimization" case study (magic vs PEXT lookup latency, see [Metrics Catalog](#part-iv--metrics-catalog--benchmarking)).
+**Future extensions (staged, in order):**
+1. **Magic bitboards** for sliding pieces (bishop/rook, queen = union) — per-square magic number, mask, shift, and pointer/offset into a shared "fancy magic" attack table; magic numbers generated via a one-time offline search (documented, reproducible tool under `tools/`) and checked in as constants, not regenerated at runtime. This is the first planned post-Milestone-1 movegen optimization, justified by a loop-vs-magic lookup-latency benchmark (see [Metrics Catalog](#part-iv--metrics-catalog--benchmarking)) before it's adopted as the default.
+2. **PEXT-based attack lookup** (`__builtin_ia32_pext` / `_pext_u64`, BMI2) as a faster alternative to magic multiplication on supported hardware, selected via a compile-time or runtime CPU-feature switch, once magics are in place — a great "measurable optimization" case study (loop vs. magic vs. PEXT lookup latency).
 
-**Common pitfalls:** off-by-one in magic shift/index math; forgetting edge-of-board wraparound when generating knight/king attacks (classic bug: knight on `a-file` "attacking" `g/h`-file squares); pawn double-push and en passant interacting incorrectly with the legality filter; generating castling moves without checking intervening-square-attacked conditions.
+**Common pitfalls:** forgetting the per-step file-wrap guard in the ray walker (a rook/bishop ray must stop at the board edge, not wrap from the `h`-file to the `a`-file of the next rank); forgetting edge-of-board wraparound when generating knight/king attacks (classic bug: knight on `a-file` "attacking" `g/h`-file squares); pawn double-push and en passant interacting incorrectly with the legality filter; generating castling moves without checking intervening-square-attacked conditions.
 
 **Implementation order:** right after `Move`, and *before* `Position`/make-unmake, since perft testing of movegen against known positions is most valuable when it can be done against a minimal, correct `Position` shell before search exists at all.
 
@@ -554,7 +556,7 @@ For every metric below: what it measures, how to measure it, what tooling produc
 | **Perft node count** | Movegen/make-unmake correctness | Compare `perft(N)` to known-correct reference values | `tests/perft` | CI test, fails build on mismatch |
 | **Perft runtime** | Raw movegen + make/unmake throughput | Wall-clock time for `perft(6)` from start position, fixed hardware/flags | `tests/perft` timed mode | Tracked in `bench/results/`, flagged on regression |
 | **Nodes per second (NPS)** | Search throughput | `nodes / elapsed_time` during a fixed-time or fixed-depth search on benchmark positions | `bench/search_bench` | Tracked per commit in `benchmark.yml` |
-| **Magic lookup latency** | Sliding-attack lookup cost | Google Benchmark micro-bench isolating `attacks(square, occupancy)` call | `bench/microbench` | Regression band on `benchmark.yml` |
+| **Sliding-attack lookup latency** | Sliding-attack lookup cost (loop-based initially; re-baselined when magics land) | Google Benchmark micro-bench isolating `rook_attacks`/`bishop_attacks`/`queen_attacks(square, occupancy)` calls | `bench/microbench` | Regression band on `benchmark.yml`; also the before/after metric required to justify adopting magic bitboards later |
 | **Move generation speed** | Cost of producing a full pseudo-legal move list | Google Benchmark over representative positions (batch, avg moves/position) | `bench/microbench` | Regression band |
 | **TT hit rate** | Search efficiency / cache effectiveness | `hits / probes` counted during a fixed search | Instrumented counters, reported via debug UCI `info string` or bench harness | Tracked, expect increase after ordering/TT improvements |
 | **Hashfull (‰)** | TT memory pressure at a given hash size | UCI standard `info hashfull` | Built into TT | N/A (informational, UCI-required) |
@@ -584,11 +586,11 @@ Every milestone must leave `master` in a working, UCI-playable state (even Miles
 - **Success criteria:** `cmake --preset debug && cmake --build build && ctest` succeeds on a clean checkout on at least two machines/compilers (or CI matrix legs).
 
 ### Milestone 1: Core Types, Move Representation, Move Generation
-- **Goals:** correct, fast, perft-verified pseudo-legal move generation with magic bitboards.
-- **Deliverables:** `core/`, packed `Move`, precomputed attack tables, magic bitboard sliding attacks (with the offline magic-number generator tool checked in), `movegen::generate_pseudo_legal`.
-- **Benchmarks:** magic lookup latency, move generation speed microbenchmarks committed as the first real `bench/results/` baseline.
+- **Goals:** correct, perft-verified pseudo-legal move generation. Fast comes later — magic bitboards are explicitly deferred (see [3.3](#33-move-generation-movegen)); this milestone's sliding-piece attacks are loop/bit-shift ray walks over live occupancy.
+- **Deliverables:** `core/`, plain-struct `Move` (per [3.2](#32-move-representation-coremoveh)), precomputed knight/king/pawn attack tables, loop-based ray-walk sliding attacks (`rook_attacks`/`bishop_attacks`/`queen_attacks`), `movegen::generate_pseudo_legal_moves`.
+- **Benchmarks:** loop-based sliding-attack lookup latency, move generation speed microbenchmarks committed as the first real `bench/results/` baseline — this baseline is what a future magic-bitboard swap gets measured against.
 - **Tests:** perft against start position + Kiwipete + positions 3–6, to at least depth 5–6 in CI (deeper locally/manually).
-- **Success criteria:** perft matches reference values exactly at all tested depths; magic lookup benchmark recorded as baseline.
+- **Success criteria:** perft matches reference values exactly at all tested depths; loop-based sliding-attack benchmark recorded as baseline.
 
 ### Milestone 2: Position, Make/Unmake, Zobrist, Minimal UCI
 - **Goals:** a `Position` that can legally play a full game via make/unmake, with a minimal UCI loop making it GUI-testable.
@@ -650,7 +652,7 @@ Every milestone must leave `master` in a working, UCI-playable state (even Miles
 
 - **Perft**: "performance test" — exhaustive move-count enumeration to a fixed depth, used to verify move generator correctness against known reference values, not for performance despite the name's origin.
 - **Zobrist hashing**: a technique for incrementally maintaining a hash key representing board state via XOR of precomputed random numbers per piece/square/state feature.
-- **Magic bitboards**: a technique using a precomputed "magic" multiplier per square to perfectly hash a masked occupancy bitboard into an index into a precomputed attack table, giving O(1) sliding-piece attack lookup.
+- **Magic bitboards**: a technique using a precomputed "magic" multiplier per square to perfectly hash a masked occupancy bitboard into an index into a precomputed attack table, giving O(1) sliding-piece attack lookup. Deliberately deferred past Milestone 1 in favor of a simpler loop/bit-shift ray walk — see [3.3](#33-move-generation-movegen).
 - **PVS (Principal Variation Search)**: an alpha-beta refinement that searches the first move at full window and subsequent moves with a cheaper null window, re-searching only if a move unexpectedly beats the window.
 - **LMR (Late Move Reductions)**: reduce search depth for moves ordered late (assumed less likely to be best), re-searching at full depth if they turn out to beat alpha.
 - **Null-move pruning**: search assuming the side to move "passes," to cheaply prove a position is so good a real move must also be good — unsound in zugzwang positions, hence the guard.
@@ -675,6 +677,7 @@ Record contested decisions here as they're made, newest first. Full-form ADRs fo
 
 | Date | Decision | Summary | ADR |
 |---|---|---|---|
+| 2026-07-26 | Defer magic bitboards past Milestone 1; sliding-piece attacks generated via loop/bit-shift ray walk over live occupancy for now | See 3.3 | — (settled here, no separate ADR needed) |
 | 2026-07-26 | Stage subsystem work as Correctness → Measurement → Optimization; benchmark suite triggers on changed source paths, not a commit tag | See 1.7, 3.11 | — (settled here, no separate ADR needed) |
 | 2026-07-25 | Colocated `.h`/`.cpp` per module in `src/`, no separate `include/` tree | See 1.1 | — (settled here, no separate ADR needed) |
 | 2026-07-25 | Feature branch + PR for every change, including solo-dev work | See 1.5 | — (settled here, no separate ADR needed) |
