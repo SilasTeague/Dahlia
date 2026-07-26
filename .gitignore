@@ -4,3 +4,11 @@ Dahlia*
 tests-output
 .vscode
 Dockerfile
+
+# CMake
+build/
+compile_commands.json
+
+# Build output binaries (Makefile and CMake both produce these)
+/dahlia
+/src/dahlia
