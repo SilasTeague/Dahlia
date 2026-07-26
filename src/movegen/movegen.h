@@ -15,6 +15,8 @@ void generate_pawn_moves(MoveList& move_list, const Position& position);
 
 void generate_knight_moves(MoveList& move_list, const Position& position);
 
+void generate_king_moves(MoveList& move_list, const Position& position);
+
 void generate_sliding_moves(MoveList& move_list, const Position& position, Piece piece);
 
 void generate_pseudo_legal_moves(MoveList& move_list, const Position& position);

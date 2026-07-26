@@ -4,6 +4,7 @@ Dahlia*
 tests-output
 .vscode
 Dockerfile
+.cache
 
 # CMake
 build/
