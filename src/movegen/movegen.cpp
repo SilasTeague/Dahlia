@@ -210,26 +210,27 @@ void generate_king_moves(MoveList &move_list, const Position &position) {
 
 	// Castling
 	Bitboard occupied = position.aggregates[ALL];
+	Color enemy = static_cast<Color>(side ^ 1);
 	if (side == WHITE) {
 		if ((position.castling_rights & WHITE_00) &&
 			!(occupied & ((1ULL << f1) | (1ULL << g1))) &&
-			!is_attacked(position, e1) && !is_attacked(position, f1) && !is_attacked(position, g1)) {
+			!is_attacked(position, e1, enemy) && !is_attacked(position, f1, enemy) && !is_attacked(position, g1, enemy)) {
 			move_list.push({e1, g1});
 		}
 		if ((position.castling_rights & WHITE_000) &&
 			!(occupied & ((1ULL << b1) | (1ULL << c1) | (1ULL << d1))) &&
-			!is_attacked(position, e1) && !is_attacked(position, d1) && !is_attacked(position, c1)) {
+			!is_attacked(position, e1, enemy) && !is_attacked(position, d1, enemy) && !is_attacked(position, c1, enemy)) {
 			move_list.push({e1, c1});
 		}
 	} else {
 		if ((position.castling_rights & BLACK_00) &&
 			!(occupied & ((1ULL << f8) | (1ULL << g8))) &&
-			!is_attacked(position, e8) && !is_attacked(position, f8) && !is_attacked(position, g8)) {
+			!is_attacked(position, e8, enemy) && !is_attacked(position, f8, enemy) && !is_attacked(position, g8, enemy)) {
 			move_list.push({e8, g8});
 		}
 		if ((position.castling_rights & BLACK_000) &&
 			!(occupied & ((1ULL << b8) | (1ULL << c8) | (1ULL << d8))) &&
-			!is_attacked(position, e8) && !is_attacked(position, d8) && !is_attacked(position, c8)) {
+			!is_attacked(position, e8, enemy) && !is_attacked(position, d8, enemy) && !is_attacked(position, c8, enemy)) {
 			move_list.push({e8, c8});
 		}
 	}
