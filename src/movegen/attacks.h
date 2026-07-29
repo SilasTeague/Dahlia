@@ -15,4 +15,4 @@ Bitboard rook_attacks(Square square, Bitboard occupied);
 
 Bitboard queen_attacks(Square square, Bitboard occupied);
 
-bool is_attacked(const Position& pos, Square square);
+bool is_attacked(const Position& pos, Square square, Color by);
