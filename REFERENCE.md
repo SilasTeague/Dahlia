@@ -355,9 +355,11 @@ namespace movegen {
 - Bitboard-based board representation (`Bitboard pieces[Color][PieceType]`, `Bitboard occupied[Color]`, `Bitboard occupied_all`), plus a mailbox array (`Piece board[64]`) for O(1) "what's on this square" — a well-known worthwhile redundancy in bitboard engines; document the sync invariant clearly.
 - **Zobrist hashing**: incremental key update on `make_move`/`unmake_move`, not recomputed from scratch — with a unit test asserting the incremental key always matches a from-scratch computation (see 1.6).
 - `make_move`/`unmake_move` pair that mutates in place and can perfectly restore prior state (this requires a small "undo stack" of the irreversible state: captured piece, prior castling rights, prior en passant square, prior halfmove clock, prior Zobrist key).
-- FEN parsing/serialization (`Position::from_fen`, `Position::to_fen`) — needed for UCI `position fen ...` and for test suites.
+- FEN parsing/serialization (`parse_fen`, `to_fen`) — needed for UCI `position fen ...` and for test suites.
 
-**Public interface (sketch):**
+**Decision (2026-07-29): `Position` stays a plain struct; `make_move`/`unmake_move`/FEN/Zobrist are free functions, not methods.** The class-based sketch below is the original design; implementation followed the free-function style `core`/`movegen` already established (`Move` is a plain struct per 3.2, `generate_pseudo_legal_moves(list, position)` rather than `position.generate_moves()`) for consistency across the codebase rather than introducing a second style. Actual signatures: `Position parse_fen(std::string_view)`, `std::string to_fen(const Position&)`, `void make_move(Position&, Move, StateInfo&)`, `void unmake_move(Position&, Move, const StateInfo&)`.
+
+**Public interface (original sketch, superseded by the free-function decision above):**
 ```cpp
 class Position {
  public:
