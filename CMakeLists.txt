@@ -17,6 +17,7 @@ add_library(dahlia_core
 	src/movegen/attacks.cpp
 	src/movegen/movegen.cpp
 	src/position/position.cpp
+	src/position/zobrist.cpp
 )
 target_include_directories(dahlia_core PUBLIC ${CMAKE_SOURCE_DIR}/src)
 dahlia_set_warnings(dahlia_core)
