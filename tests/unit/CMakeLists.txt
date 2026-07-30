@@ -2,6 +2,7 @@ add_executable(dahlia_unit_tests
 	test_placeholder.cpp
 	test_position_fen.cpp
 	test_make_unmake.cpp
+	test_uci.cpp
 )
 target_link_libraries(dahlia_unit_tests PRIVATE dahlia_core Catch2::Catch2WithMain)
 
