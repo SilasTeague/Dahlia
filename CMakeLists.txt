@@ -16,6 +16,9 @@ include(cmake/Sanitizers.cmake)
 add_library(dahlia_core
 	src/movegen/attacks.cpp
 	src/movegen/movegen.cpp
+	src/position/position.cpp
+	src/position/zobrist.cpp
+	src/uci/uci.cpp
 )
 target_include_directories(dahlia_core PUBLIC ${CMAKE_SOURCE_DIR}/src)
 dahlia_set_warnings(dahlia_core)
@@ -33,6 +36,7 @@ endif()
 if (DAHLIA_BUILD_TESTS)
 	enable_testing()
 	add_subdirectory(tests/unit)
+	add_subdirectory(tests/perft)
 endif()
 
 if (DAHLIA_BUILD_BENCHMARKS)

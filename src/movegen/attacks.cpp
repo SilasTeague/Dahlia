@@ -92,17 +92,15 @@ Bitboard queen_attacks(Square square, Bitboard occupied) {
 	return rook_attacks(square, occupied) | bishop_attacks(square, occupied);
 }
 
-bool is_attacked(const Position &pos, Square square) {
-	Color side = pos.side_to_move;
-	Color attacking_side = static_cast<Color>(side ^ 1);
+bool is_attacked(const Position &pos, Square square, Color by) {
+	Color defender = static_cast<Color>(by ^ 1);
 	Bitboard occupied = pos.aggregates[ALL];
 
-	if (knight_attacks[square] & pos.pieces[attacking_side][KNIGHT]) return true;
-	if (king_attacks[square] & pos.pieces[attacking_side][KING]) return true;
-
-	if (pawn_attacks[side][square] & pos.pieces[attacking_side][PAWN]) return true;
-	if (bishop_attacks(square, occupied) & (pos.pieces[attacking_side][BISHOP] | pos.pieces[attacking_side][QUEEN])) return true;
-	if (rook_attacks(square, occupied) & (pos.pieces[attacking_side][ROOK] | pos.pieces[attacking_side][QUEEN])) return true;
+	if (knight_attacks[square] & pos.pieces[by][KNIGHT]) return true;
+	if (king_attacks[square] & pos.pieces[by][KING]) return true;
+	if (pawn_attacks[defender][square] & pos.pieces[by][PAWN]) return true;
+	if (bishop_attacks(square, occupied) & (pos.pieces[by][BISHOP] | pos.pieces[by][QUEEN])) return true;
+	if (rook_attacks(square, occupied) & (pos.pieces[by][ROOK] | pos.pieces[by][QUEEN])) return true;
 
 	return false;
 }
