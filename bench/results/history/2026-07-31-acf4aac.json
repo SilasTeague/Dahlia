@@ -1,0 +1,70 @@
+{
+  "commit": "acf4aac",
+  "timestamp": "2026-07-31T02:58:33Z",
+  "compiler": "/usr/bin/c++",
+  "build": "RelWithDebInfo",
+  "cpu": "arm",
+  "benchmarks": {
+    "microbench": [
+      {
+        "name": "BM_SquareBBShift",
+        "real_time": 0.30322617463622564,
+        "cpu_time": 0.30307289319835806,
+        "time_unit": "ns"
+      },
+      {
+        "name": "BM_RookAttacksLookup",
+        "real_time": 8.520067967492352,
+        "cpu_time": 8.515223988559145,
+        "time_unit": "ns"
+      },
+      {
+        "name": "BM_BishopAttacksLookup",
+        "real_time": 5.620704685774327,
+        "cpu_time": 5.241695756665021,
+        "time_unit": "ns"
+      },
+      {
+        "name": "BM_QueenAttacksLookup",
+        "real_time": 15.107735659000834,
+        "cpu_time": 14.488685813434612,
+        "time_unit": "ns"
+      },
+      {
+        "name": "BM_GeneratePseudoLegalMoves_StartPosition",
+        "real_time": 80.84048729513246,
+        "cpu_time": 80.79539488760226,
+        "time_unit": "ns"
+      }
+    ],
+    "search_bench": [
+      {
+        "name": "BM_Search_Opening",
+        "real_time": 2.61887717894765,
+        "cpu_time": 2.6173694029850743,
+        "time_unit": "ms",
+        "nodes": 38489.0,
+        "nodes_per_second": 54870.23401358605,
+        "depth_reached": 5.0
+      },
+      {
+        "name": "BM_Search_Middlegame",
+        "real_time": 60.53565978072584,
+        "cpu_time": 60.504583333333336,
+        "time_unit": "ms",
+        "nodes": 505339.0,
+        "nodes_per_second": 696006.5008849191,
+        "depth_reached": 5.0
+      },
+      {
+        "name": "BM_Search_Endgame",
+        "real_time": 0.1287382442511028,
+        "cpu_time": 0.12866519337016566,
+        "time_unit": "ms",
+        "nodes": 984.0,
+        "nodes_per_second": 1408.426512770307,
+        "depth_reached": 5.0
+      }
+    ]
+  }
+}
