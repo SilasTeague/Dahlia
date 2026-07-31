@@ -244,3 +244,16 @@ void generate_pseudo_legal_moves(MoveList &move_list, const Position &position) 
 	generate_sliding_moves(move_list, position, QUEEN);
 	generate_king_moves(move_list, position);
 }
+
+void generate_legal_moves(MoveList &move_list, Position &position) {
+	MoveList pseudo;
+	generate_pseudo_legal_moves(pseudo, position);
+
+	Color us = position.side_to_move;
+	for (int i = 0; i < pseudo.count; i++) {
+		StateInfo undo;
+		make_move(position, pseudo.moves[i], undo);
+		if (!is_in_check(position, us)) move_list.push(pseudo.moves[i]);
+		unmake_move(position, pseudo.moves[i], undo);
+	}
+}

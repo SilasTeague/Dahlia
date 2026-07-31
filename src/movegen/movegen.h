@@ -21,4 +21,6 @@ void generate_sliding_moves(MoveList& move_list, const Position& position, Piece
 
 void generate_pseudo_legal_moves(MoveList& move_list, const Position& position);
 
+void generate_legal_moves(MoveList& move_list, Position& position);
+
 
