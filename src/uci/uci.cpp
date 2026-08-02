@@ -8,25 +8,11 @@
 #include "movegen/attacks.h"
 #include "movegen/movegen.h"
 #include "position/position.h"
+#include "search/search.h"
 
 namespace {
 
 constexpr const char* kStartFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-
-MoveList generate_legal_moves(Position& pos) {
-	MoveList pseudo;
-	generate_pseudo_legal_moves(pseudo, pos);
-
-	MoveList legal;
-	Color us = pos.side_to_move;
-	for (int i = 0; i < pseudo.count; i++) {
-		StateInfo undo;
-		make_move(pos, pseudo.moves[i], undo);
-		if (!is_in_check(pos, us)) legal.push(pseudo.moves[i]);
-		unmake_move(pos, pseudo.moves[i], undo);
-	}
-	return legal;
-}
 
 std::string square_to_uci(Square sq) {
 	std::string s;
@@ -99,26 +85,45 @@ void handle_position(std::istringstream& iss, Position& pos) {
 	}
 }
 
-// Milestone 2 placeholder: no eval/search yet, so `go` (ignoring all of its
-// time/depth/node parameters for now) just picks a uniformly random legal
-// move. Milestone 3 replaces this with alpha-beta search.
-void handle_go(Position& pos, std::ostream& out, std::mt19937& rng) {
-	MoveList legal = generate_legal_moves(pos);
-	if (legal.count == 0) {
+// "go [depth D] [movetime MS] [wtime MS] [btime MS] [winc MS] [binc MS]
+//  [movestogo N] [infinite]" -- unrecognized tokens (e.g. "nodes", "ponder",
+// "searchmoves ...") are consumed harmlessly by the `iss >> token` loop below
+// since they're not matched by any branch.
+search::SearchLimits parse_go_limits(std::istringstream& iss) {
+	search::SearchLimits limits;
+	std::string token;
+	while (iss >> token) {
+		if (token == "depth") iss >> limits.depth;
+		else if (token == "movetime") iss >> limits.movetime_ms;
+		else if (token == "wtime") iss >> limits.wtime_ms;
+		else if (token == "btime") iss >> limits.btime_ms;
+		else if (token == "winc") iss >> limits.winc_ms;
+		else if (token == "binc") iss >> limits.binc_ms;
+		else if (token == "movestogo") iss >> limits.movestogo;
+		else if (token == "infinite") limits.infinite = true;
+	}
+	return limits;
+}
+
+// Milestone 3 (REFERENCE.md 3.8): plain iterative-deepening negamax
+// alpha-beta replaces Milestone 2's uniformly random move choice.
+void handle_go(Position& pos, std::istringstream& iss, std::ostream& out) {
+	search::SearchLimits limits = parse_go_limits(iss);
+	search::SearchResult result = search::think(pos, limits, &out);
+
+	if (result.best_move.from == NULL_SQUARE) {
 		out << "bestmove 0000\n";
 		return;
 	}
-	std::uniform_int_distribution<int> dist(0, legal.count - 1);
-	out << "bestmove " << move_to_uci(legal.moves[dist(rng)]) << "\n";
+	out << "bestmove " << move_to_uci(result.best_move) << "\n";
 }
 
 }  // namespace
 
-void run_uci_loop(std::istream& in, std::ostream& out, unsigned int seed) {
+void run_uci_loop(std::istream& in, std::ostream& out) {
 	init_attack_tables();
 
 	Position pos = parse_fen(kStartFen);
-	std::mt19937 rng(seed);
 	std::string line;
 
 	while (std::getline(in, line)) {
@@ -137,9 +142,12 @@ void run_uci_loop(std::istream& in, std::ostream& out, unsigned int seed) {
 		} else if (cmd == "position") {
 			handle_position(iss, pos);
 		} else if (cmd == "go") {
-			handle_go(pos, out, rng);
+			handle_go(pos, iss, out);
 		} else if (cmd == "stop") {
-			// No asynchronous search yet (Milestone 3+); nothing to stop.
+			// Search runs synchronously inside handle_go, so by the time a
+			// "stop" line is read here any prior "go" has already finished --
+			// there's no in-flight search to interrupt yet. True async stop
+			// needs a background search thread (REFERENCE.md 3.8/3.9's SMP note).
 		} else if (cmd == "quit") {
 			break;
 		}

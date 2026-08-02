@@ -8,11 +8,10 @@
 #include "position/position.h"
 #include "uci/uci.h"
 
-// Scripted UCI protocol tests (REFERENCE.md 3.10 / Milestone 2): feed
-// commands through an istream, assert well-formed responses on the ostream.
-// run_uci_loop takes a fixed seed here so `go`'s move choice is
-// deterministic-per-run (still legal-move-valid, just not hardcoded to one
-// specific move, since which move is "random" isn't itself a spec).
+// Scripted UCI protocol tests (REFERENCE.md 3.10): feed commands through an
+// istream, assert well-formed responses on the ostream. `go` now runs
+// Milestone 3's real (deterministic) alpha-beta search, so bestmove output
+// is checked for legality/well-formedness rather than a specific move.
 
 namespace {
 
@@ -47,7 +46,7 @@ bool any_line_starts_with(const std::vector<std::string>& lines, const std::stri
 TEST_CASE("uci: uci command produces uciok", "[uci]") {
 	std::istringstream in("uci\nquit\n");
 	std::ostringstream out;
-	run_uci_loop(in, out, 1);
+	run_uci_loop(in, out);
 
 	auto lines = lines_of(out.str());
 	CHECK(any_line_starts_with(lines, "id name"));
@@ -57,7 +56,7 @@ TEST_CASE("uci: uci command produces uciok", "[uci]") {
 TEST_CASE("uci: isready produces readyok", "[uci]") {
 	std::istringstream in("isready\nquit\n");
 	std::ostringstream out;
-	run_uci_loop(in, out, 1);
+	run_uci_loop(in, out);
 
 	CHECK(any_line_is(lines_of(out.str()), "readyok"));
 }
@@ -65,7 +64,7 @@ TEST_CASE("uci: isready produces readyok", "[uci]") {
 TEST_CASE("uci: go from startpos produces a legal bestmove", "[uci]") {
 	std::istringstream in("position startpos\ngo\nquit\n");
 	std::ostringstream out;
-	run_uci_loop(in, out, 1);
+	run_uci_loop(in, out);
 
 	auto lines = lines_of(out.str());
 	CHECK(any_line_starts_with(lines, "bestmove "));
@@ -85,7 +84,7 @@ TEST_CASE("uci: position startpos moves applies moves before go", "[uci]") {
 	// illegal or nonsensical move).
 	std::istringstream in("position startpos moves e2e4 e7e5 g1f3\ngo\nquit\n");
 	std::ostringstream out;
-	run_uci_loop(in, out, 1);
+	run_uci_loop(in, out);
 
 	auto lines = lines_of(out.str());
 	std::string bestmove;
@@ -106,7 +105,7 @@ TEST_CASE("uci: position fen sets an arbitrary position", "[uci]") {
 	std::istringstream in(
 		"position fen r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1\ngo\nquit\n");
 	std::ostringstream out;
-	run_uci_loop(in, out, 1);
+	run_uci_loop(in, out);
 
 	CHECK(any_line_starts_with(lines_of(out.str()), "bestmove "));
 }
@@ -116,7 +115,7 @@ TEST_CASE("uci: checkmate produces bestmove 0000", "[uci]") {
 	std::istringstream in(
 		"position fen rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3\ngo\nquit\n");
 	std::ostringstream out;
-	run_uci_loop(in, out, 1);
+	run_uci_loop(in, out);
 
 	CHECK(any_line_is(lines_of(out.str()), "bestmove 0000"));
 }
@@ -125,7 +124,7 @@ TEST_CASE("uci: ucinewgame resets to the start position", "[uci]") {
 	std::istringstream in(
 		"position fen 8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1\nucinewgame\ngo\nquit\n");
 	std::ostringstream out;
-	run_uci_loop(in, out, 1);
+	run_uci_loop(in, out);
 
 	CHECK(any_line_starts_with(lines_of(out.str()), "bestmove "));
 }

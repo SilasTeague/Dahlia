@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(DAHLIA_BUILD_TESTS "Build the Catch2 unit test suite" ON)
-option(DAHLIA_BUILD_BENCHMARKS "Build the Google Benchmark microbenchmarks" ON)
+option(DAHLIA_BUILD_BENCHMARKS "Build the Google Benchmark microbenchmarks and search_bench" ON)
 option(DAHLIA_ENABLE_SANITIZERS "Build with ASan+UBSan" OFF)
 option(DAHLIA_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 
@@ -14,10 +14,13 @@ include(cmake/CompilerWarnings.cmake)
 include(cmake/Sanitizers.cmake)
 
 add_library(dahlia_core
+	src/eval/evaluate.cpp
 	src/movegen/attacks.cpp
 	src/movegen/movegen.cpp
 	src/position/position.cpp
 	src/position/zobrist.cpp
+	src/search/clock.cpp
+	src/search/search.cpp
 	src/uci/uci.cpp
 )
 target_include_directories(dahlia_core PUBLIC ${CMAKE_SOURCE_DIR}/src)
@@ -41,4 +44,5 @@ endif()
 
 if (DAHLIA_BUILD_BENCHMARKS)
 	add_subdirectory(bench/microbench)
+	add_subdirectory(bench/search_bench)
 endif()
