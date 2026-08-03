@@ -135,11 +135,12 @@ Target standard: **C++20** (already in use). Use C++20 features deliberately, no
 ## 1.4 Documentation Standards
 
 - **Every public header** gets a file-level comment: one paragraph on what the module is responsible for and, critically, what it is *not* responsible for (ties back to the dependency graph in 1.1).
-- **Every public class/function** gets a Doxygen-style comment only when the *why* isn't obvious from the signature and name. Do not restate the signature in prose (`/// Returns the square. @return the square` is banned). Document:
+- **Every public class/function** gets a comment only when the *why* isn't obvious from the signature and name. Do not restate the signature in prose (`/// Returns the square. @return the square` is banned). Document:
   - Non-obvious invariants (e.g., "assumes `from` and `to` differ; UB otherwise").
   - Complexity/performance characteristics when they matter to the caller (e.g., "O(1) via magic bitboard lookup, ~a single cache miss").
   - Ownership/lifetime rules for anything non-value-type.
 - **No comments restating code.** This applies project-wide, matching general engineering practice: comment the non-obvious constraint, workaround, or invariant — not the mechanics.
+- **One line per comment, one sentence per line.** State the invariant/pitfall/rationale and stop — a REFERENCE.md section pointer (`(see 3.7)`) substitutes for re-explaining the reasoning inline. If a comment needs more than ~2 lines to land, it belongs in this document or an ADR, not the source file.
 - `docs/architecture.md` holds a living high-level diagram (can be ASCII/mermaid) of the module graph and data flow (UCI loop → search → movegen/eval → position mutation). Regenerate/update it whenever the module graph changes — treat a stale architecture doc as a bug.
 - **Architecture Decision Records** (`docs/adr/NNNN-title.md`) for any decision that was genuinely contested (e.g., "why 0x88 was rejected in favor of bitboards," "why Zobrist over incremental hash-by-piece-list"). Short format: Context / Decision / Consequences. This is one of the most recruiter-legible artifacts in the whole repo — it shows engineering judgment, not just output.
 - `README.md` is the front door: what Dahlia is, current Elo/strength estimate if known, how to build, how to run a UCI session, a link into this reference doc and into `docs/architecture.md`.

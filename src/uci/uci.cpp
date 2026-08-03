@@ -107,9 +107,9 @@ search::SearchLimits parse_go_limits(std::istringstream& iss) {
 
 // Milestone 3 (REFERENCE.md 3.8): plain iterative-deepening negamax
 // alpha-beta replaces Milestone 2's uniformly random move choice.
-void handle_go(Position& pos, std::istringstream& iss, std::ostream& out) {
+void handle_go(Position& pos, std::istringstream& iss, search::TranspositionTable& tt, std::ostream& out) {
 	search::SearchLimits limits = parse_go_limits(iss);
-	search::SearchResult result = search::think(pos, limits, &out);
+	search::SearchResult result = search::think(pos, limits, tt, &out);
 
 	if (result.best_move.from == NULL_SQUARE) {
 		out << "bestmove 0000\n";
@@ -118,12 +118,26 @@ void handle_go(Position& pos, std::istringstream& iss, std::ostream& out) {
 	out << "bestmove " << move_to_uci(result.best_move) << "\n";
 }
 
+constexpr int kDefaultHashMb = 16;
+
+// "setoption name Hash value <MB>" -- the only UCI option Dahlia declares so far.
+void handle_setoption(std::istringstream& iss, search::TranspositionTable& tt) {
+	std::string token;
+	iss >> token;  // "name"
+	std::string name;
+	while (iss >> token && token != "value") name += token;
+	if (name != "Hash") return;
+	int megabytes = 0;
+	if (iss >> megabytes && megabytes > 0) tt.resize(static_cast<size_t>(megabytes));
+}
+
 }  // namespace
 
 void run_uci_loop(std::istream& in, std::ostream& out) {
 	init_attack_tables();
 
 	Position pos = parse_fen(kStartFen);
+	search::TranspositionTable tt(kDefaultHashMb);
 	std::string line;
 
 	while (std::getline(in, line)) {
@@ -134,15 +148,19 @@ void run_uci_loop(std::istream& in, std::ostream& out) {
 		if (cmd == "uci") {
 			out << "id name Dahlia\n";
 			out << "id author Silas Teague\n";
+			out << "option name Hash type spin default " << kDefaultHashMb << " min 1 max 1024\n";
 			out << "uciok\n";
 		} else if (cmd == "isready") {
 			out << "readyok\n";
 		} else if (cmd == "ucinewgame") {
 			pos = parse_fen(kStartFen);
+			tt.clear();
+		} else if (cmd == "setoption") {
+			handle_setoption(iss, tt);
 		} else if (cmd == "position") {
 			handle_position(iss, pos);
 		} else if (cmd == "go") {
-			handle_go(pos, iss, out);
+			handle_go(pos, iss, tt, out);
 		} else if (cmd == "stop") {
 			// Search runs synchronously inside handle_go, so by the time a
 			// "stop" line is read here any prior "go" has already finished --

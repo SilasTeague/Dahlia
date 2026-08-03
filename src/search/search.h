@@ -6,11 +6,11 @@
 #include "core/move.h"
 #include "core/types.h"
 #include "position/position.h"
+#include "search/tt.h"
 
-// Plain negamax alpha-beta search with iterative deepening (REFERENCE.md 3.8,
-// Milestone 3). Deliberately no move ordering, quiescence, or transposition
-// table yet — those are staged for Milestone 4 per the Correctness ->
-// Measurement -> Optimization discipline in 1.7.
+// Negamax alpha-beta search with iterative deepening and a transposition
+// table (REFERENCE.md 3.7/3.8, Milestone 4). Move ordering beyond the TT
+// move (MVV-LVA, killers, history) and quiescence are still deferred.
 namespace search {
 
 // UCI `go` parameters, already parsed out of protocol tokens. -1 means
@@ -46,6 +46,6 @@ constexpr int kMaxPly = 64;
 // `limits` runs out) and returns the best move found at the last
 // fully-completed depth. Emits one UCI `info` line per completed depth to
 // `info_out` when given.
-SearchResult think(Position& pos, const SearchLimits& limits, std::ostream* info_out = nullptr);
+SearchResult think(Position& pos, const SearchLimits& limits, TranspositionTable& tt, std::ostream* info_out = nullptr);
 
 }  // namespace search

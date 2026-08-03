@@ -27,7 +27,8 @@ TEST_CASE("search: finds mate in one (back-rank mate)", "[search]") {
 
 	search::SearchLimits limits;
 	limits.depth = 2;
-	search::SearchResult result = search::think(pos, limits);
+	search::TranspositionTable tt(1);
+	search::SearchResult result = search::think(pos, limits, tt);
 
 	CHECK(same_move(result.best_move, Move{a1, a8}));
 	CHECK(result.score >= search::kMateScore - search::kMaxPly);
@@ -38,7 +39,8 @@ TEST_CASE("search: captures an undefended rook for free", "[search]") {
 
 	search::SearchLimits limits;
 	limits.depth = 3;
-	search::SearchResult result = search::think(pos, limits);
+	search::TranspositionTable tt(1);
+	search::SearchResult result = search::think(pos, limits, tt);
 
 	CHECK(same_move(result.best_move, Move{h1, h8}));
 }
@@ -50,7 +52,8 @@ TEST_CASE("search: does not hang the queen to a defended pawn", "[search]") {
 
 	search::SearchLimits limits;
 	limits.depth = 2;
-	search::SearchResult result = search::think(pos, limits);
+	search::TranspositionTable tt(1);
+	search::SearchResult result = search::think(pos, limits, tt);
 
 	CHECK_FALSE(same_move(result.best_move, Move{e4, e5}));
 }
