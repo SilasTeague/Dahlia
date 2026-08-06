@@ -1,6 +1,7 @@
 #include "search/search.h"
 
 #include <chrono>
+#include <utility>
 
 #include "eval/evaluate.h"
 #include "movegen/movegen.h"
@@ -31,41 +32,77 @@ bool time_up(const SearchState& state) {
 	return std::chrono::steady_clock::now() >= state.deadline;
 }
 
-int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, SearchState& state) {
+// TT scores are stored root-relative (ply-independent) and read back
+// node-relative, per REFERENCE.md 3.8's mate-distance pitfall.
+int16_t score_to_tt(int16_t score, int ply) {
+	if (score >= kMateThreshold) return static_cast<int16_t>(score + ply);
+	if (score <= -kMateThreshold) return static_cast<int16_t>(score - ply);
+	return score;
+}
+
+int16_t score_from_tt(int16_t score, int ply) {
+	if (score >= kMateThreshold) return static_cast<int16_t>(score - ply);
+	if (score <= -kMateThreshold) return static_cast<int16_t>(score + ply);
+	return score;
+}
+
+bool same_move(Move a, Move b) { return a.from == b.from && a.to == b.to && a.promotion == b.promotion; }
+
+int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, SearchState& state,
+                TranspositionTable& tt) {
 	state.nodes++;
 
-	// Check the clock via a node-count modulus, not every node (REFERENCE.md
-	// 3.8 pitfall: checking every node is too slow, too rarely blows the time
-	// control).
+	// Node-count modulus, not every node -- too slow per-node, too rare misses the time control.
 	if ((state.nodes & 0x7FF) == 0 && time_up(state)) state.stop_requested = true;
 	if (state.stop_requested) return eval::evaluate(pos);
+
+	int16_t orig_alpha = alpha;
+	Move tt_move{NULL_SQUARE, NULL_SQUARE};
+	TTEntry tt_entry;
+	if (tt.probe(pos.zobrist_key, tt_entry)) {
+		tt_move = tt_entry.best_move;
+		if (ply > 0 && tt_entry.depth >= depth) {
+			int16_t tt_score = score_from_tt(tt_entry.score, ply);
+			if (tt_entry.bound == Bound::Exact) return tt_score;
+			if (tt_entry.bound == Bound::LowerBound && tt_score > alpha) alpha = tt_score;
+			else if (tt_entry.bound == Bound::UpperBound && tt_score < beta) beta = tt_score;
+			if (alpha >= beta) return tt_score;
+		}
+	}
 
 	if (depth == 0) return eval::evaluate(pos);
 
 	MoveList moves;
 	generate_legal_moves(moves, pos);
 	if (moves.count == 0) {
-		// Mate score shrinks by one per ply on the way back to the root, so
-		// a faster mate (found at a shallower ply) always scores better than
-		// a slower one (REFERENCE.md 3.8 pitfall on mate-distance handling).
+		// Mate score shrinks by one per ply toward the root, so a faster mate outscores a slower one.
 		if (is_in_check(pos, pos.side_to_move)) return static_cast<int16_t>(-kMateScore + ply);
 		return 0;
 	}
 
-	// Fail-soft: `best` tracks the true best score found, rather than being
-	// clamped to [alpha, beta]. Chosen because Milestone 4's planned PVS
-	// re-search logic expects fail-soft scores (REFERENCE.md 3.8 pitfall on
-	// not mixing fail-soft/fail-hard).
+	// TT move first: cheap, high-value ordering ahead of Milestone 4's MVV-LVA/killers/history.
+	if (tt_move.from != NULL_SQUARE) {
+		for (int i = 0; i < moves.count; i++) {
+			if (same_move(moves.moves[i], tt_move)) {
+				std::swap(moves.moves[0], moves.moves[i]);
+				break;
+			}
+		}
+	}
+
+	// Fail-soft: `best` tracks the true best score rather than clamping to [alpha, beta].
 	int16_t best = static_cast<int16_t>(-kInfiniteScore);
+	Move best_move = moves.moves[0];
 	for (int i = 0; i < moves.count; i++) {
 		StateInfo undo;
 		make_move(pos, moves.moves[i], undo);
 		int16_t score = static_cast<int16_t>(
-			-negamax(pos, depth - 1, static_cast<int16_t>(-beta), static_cast<int16_t>(-alpha), ply + 1, state));
+			-negamax(pos, depth - 1, static_cast<int16_t>(-beta), static_cast<int16_t>(-alpha), ply + 1, state, tt));
 		unmake_move(pos, moves.moves[i], undo);
 
 		if (score > best) {
 			best = score;
+			best_move = moves.moves[i];
 			if (ply == 0) state.root_best_move = moves.moves[i];
 		}
 		if (best > alpha) alpha = best;
@@ -73,12 +110,21 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 
 		if (state.stop_requested) break;
 	}
+
+	// Don't cache a score from a search the clock cut short.
+	if (!state.stop_requested) {
+		Bound bound = Bound::Exact;
+		if (best <= orig_alpha) bound = Bound::UpperBound;
+		else if (best >= beta) bound = Bound::LowerBound;
+		tt.store(pos.zobrist_key, best_move, score_to_tt(best, ply), depth, bound);
+	}
 	return best;
 }
 
 }  // namespace
 
-SearchResult think(Position& pos, const SearchLimits& limits, std::ostream* info_out) {
+SearchResult think(Position& pos, const SearchLimits& limits, TranspositionTable& tt, std::ostream* info_out) {
+	tt.new_search();
 	SearchState state;
 	auto start = std::chrono::steady_clock::now();
 	state.deadline = start + std::chrono::milliseconds(time_budget_ms(limits, pos.side_to_move));
@@ -94,7 +140,7 @@ SearchResult think(Position& pos, const SearchLimits& limits, std::ostream* info
 	if (root_moves.count == 0) return result;  // checkmate/stalemate: no move to make
 
 	for (int depth = 1; depth <= max_depth; depth++) {
-		int16_t score = negamax(pos, depth, static_cast<int16_t>(-kInfiniteScore), kInfiniteScore, 0, state);
+		int16_t score = negamax(pos, depth, static_cast<int16_t>(-kInfiniteScore), kInfiniteScore, 0, state, tt);
 
 		// Depth 1 always gets its partial best move used (alpha-beta already
 		// updates root_best_move as soon as any move improves on -infinity),

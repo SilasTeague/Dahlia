@@ -27,7 +27,8 @@ void run_fixed_depth_search(benchmark::State& state, const char* fen) {
 		Position pos = parse_fen(fen);
 		search::SearchLimits limits;
 		limits.depth = kFixedDepth;
-		search::SearchResult result = search::think(pos, limits);
+		search::TranspositionTable tt(16);
+		search::SearchResult result = search::think(pos, limits, tt);
 		benchmark::DoNotOptimize(result);
 
 		state.counters["nodes"] = static_cast<double>(result.nodes);

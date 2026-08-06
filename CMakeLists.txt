@@ -21,6 +21,7 @@ add_library(dahlia_core
 	src/position/zobrist.cpp
 	src/search/clock.cpp
 	src/search/search.cpp
+	src/search/tt.cpp
 	src/uci/uci.cpp
 )
 target_include_directories(dahlia_core PUBLIC ${CMAKE_SOURCE_DIR}/src)
