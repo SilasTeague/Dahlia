@@ -1,7 +1,9 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
-#include <ostream>
+#include <functional>
+#include <string>
 
 #include "core/move.h"
 #include "core/types.h"
@@ -42,10 +44,21 @@ constexpr int16_t kMateScore = 32000;
 constexpr int16_t kInfiniteScore = kMateScore + 1;
 constexpr int kMaxPly = 64;
 
+// One fully-formatted UCI `info` line (no trailing newline), emitted once
+// per completed depth.
+using InfoCallback = std::function<void(const std::string& line)>;
+
 // Iteratively deepens (depth 1..limits.depth, or until the time budget from
 // `limits` runs out) and returns the best move found at the last
-// fully-completed depth. Emits one UCI `info` line per completed depth to
-// `info_out` when given.
-SearchResult think(Position& pos, const SearchLimits& limits, TranspositionTable& tt, std::ostream* info_out = nullptr);
+// fully-completed depth. `stop_requested` is checked on a node-count
+// modulus (not per-node) and may be set from another thread -- e.g. a UCI
+// `stop` -- to make think() return promptly with the best move found so far
+// (REFERENCE.md 3.8/3.9/3.10). Setting it before calling think() (e.g. a
+// `stop` that raced a `go`) still returns a legal move, just an unsearched
+// one. `on_info`, if given, is called with one complete line per completed
+// depth; think() never writes to any stream itself, so the caller decides
+// how to serialize output across threads.
+SearchResult think(Position& pos, const SearchLimits& limits, TranspositionTable& tt,
+                    std::atomic<bool>& stop_requested, const InfoCallback& on_info = nullptr);
 
 }  // namespace search

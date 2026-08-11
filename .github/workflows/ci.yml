@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    name: build-and-test (${{ matrix.os }}, ${{ matrix.compiler }}, ${{ matrix.build_type }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        compiler: [gcc, clang]
+        build_type: [Debug, Release]
+        exclude:
+          # Apple Clang is macOS's native toolchain; Homebrew GCC is slow to
+          # install and adds little over the Linux GCC leg, so it's skipped
+          # to keep CI fast -- REFERENCE.md 2.2 asks for two distinct
+          # compilers being exercised, not every OS x compiler combination.
+          - os: macos-latest
+            compiler: gcc
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select compiler
+        run: |
+          if [ "${{ matrix.compiler }}" = "gcc" ]; then
+            echo "CC=gcc" >> "$GITHUB_ENV"
+            echo "CXX=g++" >> "$GITHUB_ENV"
+          else
+            echo "CC=clang" >> "$GITHUB_ENV"
+            echo "CXX=clang++" >> "$GITHUB_ENV"
+          fi
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.build_type == 'Debug' && 'debug' || 'release' }}
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.build_type == 'Debug' && 'debug' || 'release' }}
+
+      # Release has no ctest preset (bench/portfolio builds only, see
+      # CMakePresets.json) -- functional coverage runs on the Debug leg.
+      - name: Unit + perft tests
+        if: matrix.build_type == 'Debug'
+        run: ctest --preset debug --output-on-failure
+
+  asan-ubsan:
+    name: asan-ubsan (ubuntu, clang, Debug)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "CC=clang" >> "$GITHUB_ENV" && echo "CXX=clang++" >> "$GITHUB_ENV"
+      - name: Configure
+        run: cmake --preset debug-asan
+      - name: Build
+        run: cmake --build --preset debug-asan
+      - name: Test
+        run: ctest --preset debug-asan --output-on-failure
+
+  tsan:
+    name: tsan (ubuntu, clang, Debug)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "CC=clang" >> "$GITHUB_ENV" && echo "CXX=clang++" >> "$GITHUB_ENV"
+      - name: Configure
+        run: cmake --preset debug-tsan
+      - name: Build
+        run: cmake --build --preset debug-tsan
+      # Async search (search thread vs. the UCI stdin-reader thread) is the
+      # first place Dahlia has real concurrency, and the UCI protocol tests
+      # exercise exactly that boundary (stop/isready/quit racing a search) --
+      # see REFERENCE.md 3.8's SMP note and docs/adr/0003-async-search-stop.md.
+      - name: Test
+        run: ctest --preset debug-tsan --output-on-failure

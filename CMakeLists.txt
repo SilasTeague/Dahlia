@@ -8,10 +8,18 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(DAHLIA_BUILD_TESTS "Build the Catch2 unit test suite" ON)
 option(DAHLIA_BUILD_BENCHMARKS "Build the Google Benchmark microbenchmarks and search_bench" ON)
 option(DAHLIA_ENABLE_SANITIZERS "Build with ASan+UBSan" OFF)
+option(DAHLIA_ENABLE_TSAN "Build with ThreadSanitizer" OFF)
 option(DAHLIA_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+
+if (DAHLIA_ENABLE_SANITIZERS AND DAHLIA_ENABLE_TSAN)
+	message(FATAL_ERROR "DAHLIA_ENABLE_SANITIZERS (ASan+UBSan) and DAHLIA_ENABLE_TSAN are mutually exclusive")
+endif()
 
 include(cmake/CompilerWarnings.cmake)
 include(cmake/Sanitizers.cmake)
+
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
 
 add_library(dahlia_core
 	src/eval/evaluate.cpp
@@ -25,13 +33,16 @@ add_library(dahlia_core
 	src/uci/uci.cpp
 )
 target_include_directories(dahlia_core PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(dahlia_core PUBLIC Threads::Threads)
 dahlia_set_warnings(dahlia_core)
 dahlia_enable_sanitizers(dahlia_core)
+dahlia_enable_tsan(dahlia_core)
 
 add_executable(dahlia src/main.cpp)
 target_link_libraries(dahlia PRIVATE dahlia_core)
 dahlia_set_warnings(dahlia)
 dahlia_enable_sanitizers(dahlia)
+dahlia_enable_tsan(dahlia)
 
 if (DAHLIA_BUILD_TESTS OR DAHLIA_BUILD_BENCHMARKS)
 	include(cmake/FetchDeps.cmake)

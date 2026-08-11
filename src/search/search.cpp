@@ -1,6 +1,7 @@
 #include "search/search.h"
 
 #include <chrono>
+#include <sstream>
 #include <utility>
 
 #include "eval/evaluate.h"
@@ -21,11 +22,15 @@ bool is_mate_score(int16_t score) {
 
 // Mutable state threaded through negamax for a single think() call: node
 // count, the deadline/stop flag, and the move chosen at the root.
+// `stop_requested` is a reference to the caller's atomic, not an owned flag
+// -- a UCI `stop` on another thread needs to reach it mid-search.
 struct SearchState {
-	bool stop_requested = false;
+	std::atomic<bool>& stop_requested;
 	std::chrono::steady_clock::time_point deadline;
 	uint64_t nodes = 0;
 	Move root_best_move{NULL_SQUARE, NULL_SQUARE};
+
+	explicit SearchState(std::atomic<bool>& stop) : stop_requested(stop) {}
 };
 
 bool time_up(const SearchState& state) {
@@ -53,8 +58,8 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 	state.nodes++;
 
 	// Node-count modulus, not every node -- too slow per-node, too rare misses the time control.
-	if ((state.nodes & 0x7FF) == 0 && time_up(state)) state.stop_requested = true;
-	if (state.stop_requested) return eval::evaluate(pos);
+	if ((state.nodes & 0x7FF) == 0 && time_up(state)) state.stop_requested.store(true, std::memory_order_relaxed);
+	if (state.stop_requested.load(std::memory_order_relaxed)) return eval::evaluate(pos);
 
 	int16_t orig_alpha = alpha;
 	Move tt_move{NULL_SQUARE, NULL_SQUARE};
@@ -108,11 +113,11 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 		if (best > alpha) alpha = best;
 		if (alpha >= beta) break;
 
-		if (state.stop_requested) break;
+		if (state.stop_requested.load(std::memory_order_relaxed)) break;
 	}
 
 	// Don't cache a score from a search the clock cut short.
-	if (!state.stop_requested) {
+	if (!state.stop_requested.load(std::memory_order_relaxed)) {
 		Bound bound = Bound::Exact;
 		if (best <= orig_alpha) bound = Bound::UpperBound;
 		else if (best >= beta) bound = Bound::LowerBound;
@@ -123,9 +128,10 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 
 }  // namespace
 
-SearchResult think(Position& pos, const SearchLimits& limits, TranspositionTable& tt, std::ostream* info_out) {
+SearchResult think(Position& pos, const SearchLimits& limits, TranspositionTable& tt,
+                    std::atomic<bool>& stop_requested, const InfoCallback& on_info) {
 	tt.new_search();
-	SearchState state;
+	SearchState state(stop_requested);
 	auto start = std::chrono::steady_clock::now();
 	state.deadline = start + std::chrono::milliseconds(time_budget_ms(limits, pos.side_to_move));
 
@@ -146,30 +152,32 @@ SearchResult think(Position& pos, const SearchLimits& limits, TranspositionTable
 		// updates root_best_move as soon as any move improves on -infinity),
 		// but deeper aborted iterations are discarded in favor of the last
 		// fully-completed depth's result.
-		if (state.stop_requested && depth > 1) break;
+		if (state.stop_requested.load(std::memory_order_relaxed) && depth > 1) break;
 
 		result.score = score;
 		result.depth_reached = depth;
 		result.nodes = state.nodes;
 		if (state.root_best_move.from != NULL_SQUARE) result.best_move = state.root_best_move;
 
-		if (info_out) {
+		if (on_info) {
 			auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
 				std::chrono::steady_clock::now() - start).count();
 			uint64_t nps = elapsed_ms > 0 ? state.nodes * 1000 / static_cast<uint64_t>(elapsed_ms) : state.nodes * 1000;
 
-			*info_out << "info depth " << depth;
+			std::ostringstream line;
+			line << "info depth " << depth;
 			if (is_mate_score(score)) {
 				int plies_to_mate = kMateScore - (score > 0 ? score : static_cast<int16_t>(-score));
 				int moves_to_mate = (plies_to_mate + 1) / 2;
-				*info_out << " score mate " << (score > 0 ? moves_to_mate : -moves_to_mate);
+				line << " score mate " << (score > 0 ? moves_to_mate : -moves_to_mate);
 			} else {
-				*info_out << " score cp " << score;
+				line << " score cp " << score;
 			}
-			*info_out << " nodes " << state.nodes << " nps " << nps << " time " << elapsed_ms << "\n";
+			line << " nodes " << state.nodes << " nps " << nps << " time " << elapsed_ms;
+			on_info(line.str());
 		}
 
-		if (state.stop_requested || time_up(state)) break;
+		if (state.stop_requested.load(std::memory_order_relaxed) || time_up(state)) break;
 	}
 
 	return result;

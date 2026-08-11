@@ -1,8 +1,11 @@
 #include "uci/uci.h"
 
+#include <atomic>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include "movegen/attacks.h"
@@ -13,6 +16,7 @@
 namespace {
 
 constexpr const char* kStartFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+constexpr int kDefaultHashMb = 16;
 
 std::string square_to_uci(Square sq) {
 	std::string s;
@@ -105,21 +109,6 @@ search::SearchLimits parse_go_limits(std::istringstream& iss) {
 	return limits;
 }
 
-// Milestone 3 (REFERENCE.md 3.8): plain iterative-deepening negamax
-// alpha-beta replaces Milestone 2's uniformly random move choice.
-void handle_go(Position& pos, std::istringstream& iss, search::TranspositionTable& tt, std::ostream& out) {
-	search::SearchLimits limits = parse_go_limits(iss);
-	search::SearchResult result = search::think(pos, limits, tt, &out);
-
-	if (result.best_move.from == NULL_SQUARE) {
-		out << "bestmove 0000\n";
-		return;
-	}
-	out << "bestmove " << move_to_uci(result.best_move) << "\n";
-}
-
-constexpr int kDefaultHashMb = 16;
-
 // "setoption name Hash value <MB>" -- the only UCI option Dahlia declares so far.
 void handle_setoption(std::istringstream& iss, search::TranspositionTable& tt) {
 	std::string token;
@@ -131,13 +120,108 @@ void handle_setoption(std::istringstream& iss, search::TranspositionTable& tt) {
 	if (iss >> megabytes && megabytes > 0) tt.resize(static_cast<size_t>(megabytes));
 }
 
+// Owns the position/TT/search-thread state for one UCI session. `go` runs
+// search::think on a dedicated thread so the stdin read-loop stays
+// responsive (`stop`/`isready`/`quit`) for the duration of a search
+// (REFERENCE.md 3.8/3.9/3.10). All output goes through write_line(), which
+// serializes the search thread's `info` lines against the reader thread's
+// `readyok`/`bestmove`/etc. under one mutex -- otherwise two threads writing
+// to `out` concurrently could interleave mid-line.
+class Engine {
+ public:
+	explicit Engine(std::ostream& out) : out_(out), pos_(parse_fen(kStartFen)) {}
+
+	// Guarantees the search thread (if any) is stopped and joined before the
+	// Engine's members are torn down, however run_uci_loop exits (`quit`, or
+	// the input stream simply running out without one).
+	~Engine() { stop_and_join(); }
+
+	Engine(const Engine&) = delete;
+	Engine& operator=(const Engine&) = delete;
+
+	void handle_uci() {
+		std::lock_guard<std::mutex> lock(io_mutex_);
+		out_ << "id name Dahlia\n";
+		out_ << "id author Silas Teague\n";
+		out_ << "option name Hash type spin default " << kDefaultHashMb << " min 1 max 1024\n";
+		out_ << "uciok\n";
+		out_.flush();
+	}
+
+	// Must answer even while a search is in flight -- GUIs use isready to
+	// confirm the engine is alive/responsive mid-search, not just at startup.
+	void handle_isready() { write_line("readyok"); }
+
+	// UCI compliant GUIs only send ucinewgame/setoption/position between a
+	// `bestmove` and the next `go`, never during a search, so no guard
+	// against a concurrent search is needed here (REFERENCE.md 3.10).
+	void handle_ucinewgame() {
+		pos_ = parse_fen(kStartFen);
+		tt_.clear();
+	}
+
+	void handle_setoption(std::istringstream& iss) { ::handle_setoption(iss, tt_); }
+
+	void handle_position(std::istringstream& iss) { ::handle_position(iss, pos_); }
+
+	// A `go` that arrives while a search is already running is rejected
+	// outright rather than queued -- see docs/adr/0003-async-search-stop.md.
+	void handle_go(std::istringstream& iss) {
+		search::SearchLimits limits = parse_go_limits(iss);
+		if (search_running_.load(std::memory_order_relaxed)) return;
+
+		if (search_thread_.joinable()) search_thread_.join();  // reap the previous (finished) search
+
+		stop_requested_.store(false, std::memory_order_relaxed);
+		search_running_.store(true, std::memory_order_relaxed);
+
+		search_thread_ = std::thread(
+			[this](Position search_pos, search::SearchLimits search_limits) {
+				auto on_info = [this](const std::string& line) { write_line(line); };
+				search::SearchResult result = search::think(search_pos, search_limits, tt_, stop_requested_, on_info);
+
+				write_line(result.best_move.from == NULL_SQUARE ? "bestmove 0000"
+				                                                 : "bestmove " + move_to_uci(result.best_move));
+				search_running_.store(false, std::memory_order_relaxed);
+			},
+			pos_, limits);
+	}
+
+	// Signals the search thread; does not block waiting for it to finish, so
+	// isready/further commands stay responsive while it winds down.
+	void handle_stop() { stop_requested_.store(true, std::memory_order_relaxed); }
+
+	void quit() { stop_and_join(); }
+
+ private:
+	void write_line(const std::string& line) {
+		std::lock_guard<std::mutex> lock(io_mutex_);
+		out_ << line << "\n";
+		out_.flush();
+	}
+
+	void stop_and_join() {
+		stop_requested_.store(true, std::memory_order_relaxed);
+		if (search_thread_.joinable()) search_thread_.join();
+	}
+
+	std::ostream& out_;
+	std::mutex io_mutex_;
+
+	Position pos_;
+	search::TranspositionTable tt_{kDefaultHashMb};
+
+	std::atomic<bool> stop_requested_{false};
+	std::atomic<bool> search_running_{false};
+	std::thread search_thread_;
+};
+
 }  // namespace
 
 void run_uci_loop(std::istream& in, std::ostream& out) {
 	init_attack_tables();
 
-	Position pos = parse_fen(kStartFen);
-	search::TranspositionTable tt(kDefaultHashMb);
+	Engine engine(out);
 	std::string line;
 
 	while (std::getline(in, line)) {
@@ -146,30 +230,22 @@ void run_uci_loop(std::istream& in, std::ostream& out) {
 		iss >> cmd;
 
 		if (cmd == "uci") {
-			out << "id name Dahlia\n";
-			out << "id author Silas Teague\n";
-			out << "option name Hash type spin default " << kDefaultHashMb << " min 1 max 1024\n";
-			out << "uciok\n";
+			engine.handle_uci();
 		} else if (cmd == "isready") {
-			out << "readyok\n";
+			engine.handle_isready();
 		} else if (cmd == "ucinewgame") {
-			pos = parse_fen(kStartFen);
-			tt.clear();
+			engine.handle_ucinewgame();
 		} else if (cmd == "setoption") {
-			handle_setoption(iss, tt);
+			engine.handle_setoption(iss);
 		} else if (cmd == "position") {
-			handle_position(iss, pos);
+			engine.handle_position(iss);
 		} else if (cmd == "go") {
-			handle_go(pos, iss, tt, out);
+			engine.handle_go(iss);
 		} else if (cmd == "stop") {
-			// Search runs synchronously inside handle_go, so by the time a
-			// "stop" line is read here any prior "go" has already finished --
-			// there's no in-flight search to interrupt yet. True async stop
-			// needs a background search thread (REFERENCE.md 3.8/3.9's SMP note).
+			engine.handle_stop();
 		} else if (cmd == "quit") {
+			engine.quit();
 			break;
 		}
-		// GUIs can hang waiting on buffered output (REFERENCE.md 2.4/3.10).
-		out.flush();
 	}
 }
