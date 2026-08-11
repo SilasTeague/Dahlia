@@ -13,3 +13,6 @@ compile_commands.json
 # Build output binaries (Makefile and CMake both produce these)
 /dahlia
 /src/dahlia
+
+# Release binaries from scripts/build-release.sh
+/dist/

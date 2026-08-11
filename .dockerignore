@@ -1,0 +1,8 @@
+# Allowlist, not a blocklist: the release image needs three paths, and the repo
+# also holds a multi-hundred-megabyte build/ tree (CMake's fetched Catch2 and
+# Google Benchmark sources) that would otherwise be shipped to the daemon as
+# build context on every invocation.
+*
+!CMakeLists.txt
+!cmake/
+!src/
