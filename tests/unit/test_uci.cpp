@@ -41,6 +41,22 @@ bool any_line_starts_with(const std::vector<std::string>& lines, const std::stri
 	return false;
 }
 
+int count_lines_starting_with(const std::vector<std::string>& lines, const std::string& prefix) {
+	int count = 0;
+	for (const auto& l : lines) {
+		if (l.rfind(prefix, 0) == 0) count++;
+	}
+	return count;
+}
+
+// -1 if no line starts with `prefix`.
+int index_of_first_starting_with(const std::vector<std::string>& lines, const std::string& prefix) {
+	for (size_t i = 0; i < lines.size(); i++) {
+		if (lines[i].rfind(prefix, 0) == 0) return static_cast<int>(i);
+	}
+	return -1;
+}
+
 }  // namespace
 
 TEST_CASE("uci: uci command produces uciok", "[uci]") {
@@ -127,4 +143,76 @@ TEST_CASE("uci: ucinewgame resets to the start position", "[uci]") {
 	run_uci_loop(in, out);
 
 	CHECK(any_line_starts_with(lines_of(out.str()), "bestmove "));
+}
+
+// Async `go`/`stop` tests (REFERENCE.md 3.8/3.9/3.10): `go` now runs on its
+// own thread so the reader loop keeps consuming lines while a search is in
+// flight. `go infinite` never self-terminates (no depth/time cap), so these
+// tests are deterministic: the engine cannot emit `bestmove` until `stop` or
+// `quit` reaches it, regardless of how the OS schedules the search thread.
+
+TEST_CASE("uci: go infinite runs until stop, emitting exactly one bestmove", "[uci]") {
+	std::istringstream in("position startpos\ngo infinite\nstop\nquit\n");
+	std::ostringstream out;
+	run_uci_loop(in, out);
+
+	auto lines = lines_of(out.str());
+	CHECK(count_lines_starting_with(lines, "bestmove ") == 1);
+}
+
+TEST_CASE("uci: isready responds immediately while a search is running", "[uci]") {
+	std::istringstream in("position startpos\ngo infinite\nisready\nstop\nquit\n");
+	std::ostringstream out;
+	run_uci_loop(in, out);
+
+	auto lines = lines_of(out.str());
+	int readyok_index = index_of_first_starting_with(lines, "readyok");
+	int bestmove_index = index_of_first_starting_with(lines, "bestmove ");
+
+	REQUIRE(readyok_index >= 0);
+	REQUIRE(bestmove_index >= 0);
+	// A synchronous `go` would block the reader loop, so `readyok` could only
+	// ever appear after `bestmove` -- this ordering is the actual proof the
+	// search runs concurrently rather than just returning quickly.
+	CHECK(readyok_index < bestmove_index);
+}
+
+TEST_CASE("uci: quit during a search terminates cleanly with no leaked thread", "[uci]") {
+	std::istringstream in("position startpos\ngo infinite\nquit\n");
+	std::ostringstream out;
+	// If `quit` failed to stop and join the search thread, this call would
+	// either hang (timing out the test) or the process would terminate with
+	// a live detached thread; returning normally here is the assertion.
+	run_uci_loop(in, out);
+
+	CHECK(count_lines_starting_with(lines_of(out.str()), "bestmove ") == 1);
+}
+
+TEST_CASE("uci: a second go while a search is in flight is rejected, not queued", "[uci]") {
+	std::istringstream in("position startpos\ngo infinite\ngo\nstop\nquit\n");
+	std::ostringstream out;
+	run_uci_loop(in, out);
+
+	// A queued second `go` would still be running when `quit` arrives, and
+	// `quit` stops+joins unconditionally -- so queueing would also produce a
+	// second bestmove here. Exactly one proves the second `go` never ran.
+	CHECK(count_lines_starting_with(lines_of(out.str()), "bestmove ") == 1);
+}
+
+TEST_CASE("uci: engine accepts a new go after a prior search completes", "[uci]") {
+	// Two independent sessions rather than two `go`s in one script: after
+	// `stop`, nothing in the UCI protocol lets a scripted test block until
+	// the search thread has actually finished before sending the next `go`
+	// (a real GUI would simply wait to read `bestmove` first). Ending each
+	// session without `quit` forces ~Engine to join before returning, which
+	// is the deterministic stand-in for that wait.
+	std::istringstream in1("position startpos\ngo infinite\nstop\n");
+	std::ostringstream out1;
+	run_uci_loop(in1, out1);
+	CHECK(count_lines_starting_with(lines_of(out1.str()), "bestmove ") == 1);
+
+	std::istringstream in2("position startpos\ngo infinite\nstop\n");
+	std::ostringstream out2;
+	run_uci_loop(in2, out2);
+	CHECK(count_lines_starting_with(lines_of(out2.str()), "bestmove ") == 1);
 }

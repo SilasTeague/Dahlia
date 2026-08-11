@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <atomic>
+
 #include "core/move.h"
 #include "movegen/attacks.h"
 #include "position/position.h"
@@ -28,7 +30,8 @@ TEST_CASE("search: finds mate in one (back-rank mate)", "[search]") {
 	search::SearchLimits limits;
 	limits.depth = 2;
 	search::TranspositionTable tt(1);
-	search::SearchResult result = search::think(pos, limits, tt);
+	std::atomic<bool> stop{false};
+	search::SearchResult result = search::think(pos, limits, tt, stop);
 
 	CHECK(same_move(result.best_move, Move{a1, a8}));
 	CHECK(result.score >= search::kMateScore - search::kMaxPly);
@@ -40,7 +43,8 @@ TEST_CASE("search: captures an undefended rook for free", "[search]") {
 	search::SearchLimits limits;
 	limits.depth = 3;
 	search::TranspositionTable tt(1);
-	search::SearchResult result = search::think(pos, limits, tt);
+	std::atomic<bool> stop{false};
+	search::SearchResult result = search::think(pos, limits, tt, stop);
 
 	CHECK(same_move(result.best_move, Move{h1, h8}));
 }
@@ -53,7 +57,8 @@ TEST_CASE("search: does not hang the queen to a defended pawn", "[search]") {
 	search::SearchLimits limits;
 	limits.depth = 2;
 	search::TranspositionTable tt(1);
-	search::SearchResult result = search::think(pos, limits, tt);
+	std::atomic<bool> stop{false};
+	search::SearchResult result = search::think(pos, limits, tt, stop);
 
 	CHECK_FALSE(same_move(result.best_move, Move{e4, e5}));
 }

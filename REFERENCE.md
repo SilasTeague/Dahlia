@@ -224,7 +224,7 @@ Keep the existing `Makefile` as a thin convenience wrapper (`make` → invokes C
 
 - Support and CI-test at least **two compilers** (e.g., GCC and Clang) — catching UB/warnings that only one compiler flags is a real, demonstrable correctness practice, and is cheap in GitHub Actions.
 - Warning flags (from `cmake/CompilerWarnings.cmake`): `-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Wnon-virtual-dtor -Wold-style-cast -Wcast-align -Wunused -Woverloaded-virtual -Wnull-dereference -Wdouble-promotion`. Treat warnings as errors (`-Werror`) in CI builds; keep it off by default for local iterative debug builds if it becomes friction, but never merge with warnings present.
-- Sanitizers: ASan+UBSan build variant in CI running the unit + perft(reduced depth) suite; TSan is lower priority until/unless the engine gains real multithreading (Milestone: SMP search).
+- Sanitizers: ASan+UBSan build variant in CI running the unit + perft(reduced depth) suite. TSan is also in CI as of async search (docs/adr/0003-async-search-stop.md) — the search thread vs. UCI reader thread is the engine's first real concurrency, ahead of the SMP-search milestone this note originally deferred TSan to.
 
 ## 2.3 Continuous Integration (GitHub Actions)
 
@@ -478,7 +478,7 @@ class Search {
 
 **Future extensions:** listed inline above (LMR, aspiration, SMP); further out — singular extensions, multi-cut, razoring, futility pruning, staged move generation (generate captures first, only generate quiets if needed) once profiling shows movegen cost dominates in quiet-heavy nodes.
 
-**Common pitfalls:** mate-score handling across ply boundaries (must adjust mate distance when propagating up the tree — a very common off-by-one/sign bug); fail-soft vs fail-hard alpha-beta consistency (pick one, document it, be consistent — mixing them breaks PVS re-search logic); null-move pruning in zugzwang positions (K+P endgames) giving wrong results without a guard; killer/history tables not reset between `ucinewgame` causing move-ordering bias from an unrelated prior game; not respecting `stop`/time checks frequently enough (checking every node is too slow, checking too rarely blows time controls — check via a node-count modulus, e.g., every 2048 nodes).
+**Common pitfalls:** mate-score handling across ply boundaries (must adjust mate distance when propagating up the tree — a very common off-by-one/sign bug); fail-soft vs fail-hard alpha-beta consistency (pick one, document it, be consistent — mixing them breaks PVS re-search logic); null-move pruning in zugzwang positions (K+P endgames) giving wrong results without a guard; killer/history tables not reset between `ucinewgame` causing move-ordering bias from an unrelated prior game; not respecting `stop`/time checks frequently enough (checking every node is too slow, checking too rarely blows time controls — check via a node-count modulus, e.g., every 2048 nodes). `stop` is now set from a different thread than the one running `negamax` (docs/adr/0003-async-search-stop.md) — `stop_requested` is `std::atomic<bool>`, checked unconditionally per node (cheap: it only gates the time-based check by modulus, not itself) so a `stop` is never missed, just not instant.
 
 **Implementation order:** plain alpha-beta first (Milestone 2), each subsequent technique added as its own milestone/PR with a dedicated before/after node-count benchmark proving it actually reduces the tree (not just "feels like it should").
 
@@ -488,7 +488,7 @@ class Search {
 
 **Responsibilities:** soft limit (stop starting a new iterative-deepening iteration if unlikely to finish/unlikely to be useful) vs. hard limit (must return a move by this time, checked frequently inside search). Simple formula-based allocation first (e.g., remaining time / expected remaining moves + increment, with a cap), refined later (e.g., extending time when the best move is unstable across iterations).
 
-**Common pitfalls:** losing on time due to hard-limit checks being too infrequent; not accounting for `movestogo` in classical time controls; not handling `infinite`/`ponder` (even if `ponder` support itself is deferred, `go infinite` must be handled correctly since GUIs use it for analysis mode).
+**Common pitfalls:** losing on time due to hard-limit checks being too infrequent; not accounting for `movestogo` in classical time controls; not handling `infinite`/`ponder` (even if `ponder` support itself is deferred, `go infinite` must be handled correctly since GUIs use it for analysis mode). `go infinite` needs an actual external `stop` to ever terminate, which in turn needs `go` to not block the thread reading `stop` off stdin — see docs/adr/0003-async-search-stop.md; before that ADR this pitfall was live (an "infinite" search could never be interrupted).
 
 **Implementation order:** needed as soon as iterative deepening exists and the engine is driven via real UCI time controls rather than fixed depth in test harnesses.
 
@@ -498,9 +498,9 @@ class Search {
 
 **Responsibilities:** parse/respond to `uci`, `isready`, `ucinewgame`, `position [fen|startpos] moves ...`, `go [...]`, `stop`, `quit`, `setoption name ... value ...`; declare supported options (`Hash`, `Threads` once SMP exists, `Move Overhead`, maybe `Ponder`); emit correctly-formatted `info` lines during search (depth, seldepth, score cp/mate, nodes, nps, hashfull, pv) and a final `bestmove`.
 
-**Public interface:** a single blocking read-loop over stdin, dispatching to a small command table — deliberately simple/boring, since UCI is a solved, well-specified protocol and cleverness here just introduces GUI-compatibility bugs.
+**Public interface:** a single blocking read-loop over stdin, dispatching to a small command table — deliberately simple/boring, since UCI is a solved, well-specified protocol and cleverness here just introduces GUI-compatibility bugs. `go` dispatches the search onto its own thread rather than running it inline, so the read-loop itself is never blocked for the duration of a search (docs/adr/0003-async-search-stop.md) — `stop`/`isready`/`quit` all still go through the same single-threaded dispatch, only `go` hands off.
 
-**Common pitfalls:** buffering/flushing issues (must flush stdout after every line, GUIs can hang otherwise); any stray non-UCI output on stdout (see 2.4 — logging discipline exists specifically to prevent this); off-by-one in `mate` score reporting (moves-to-mate vs. plies-to-mate — UCI wants moves); not handling `position startpos moves ...` with a long move list efficiently (replaying from scratch each time is fine and simplest; do not over-engineer this).
+**Common pitfalls:** buffering/flushing issues (must flush stdout after every line, GUIs can hang otherwise); any stray non-UCI output on stdout (see 2.4 — logging discipline exists specifically to prevent this); off-by-one in `mate` score reporting (moves-to-mate vs. plies-to-mate — UCI wants moves); not handling `position startpos moves ...` with a long move list efficiently (replaying from scratch each time is fine and simplest; do not over-engineer this). Now that `go` runs on its own thread: torn/interleaved output if the search thread's `info` lines and the reader thread's other output (`readyok`, `bestmove`, ...) aren't serialized through one mutex; a second `go` arriving mid-search must not start a concurrent search (rejected, not queued — docs/adr/0003-async-search-stop.md); `quit` must stop and join the search thread rather than exiting out from under it.
 
 **Implementation order:** minimal UCI (enough to respond to `uci`/`isready`/`position`/`go`/`bestmove` with a legal random or fixed-depth move) should exist very early (Milestone 1/2) so the engine is GUI-testable from early on, even before search is any good — "it plays a legal game in a real GUI" is a strong, demoable milestone.
 
@@ -680,6 +680,7 @@ Record contested decisions here as they're made, newest first. Full-form ADRs fo
 
 | Date | Decision | Summary | ADR |
 |---|---|---|---|
+| 2026-08-11 | `go` runs on its own thread (async search); a second `go` arriving while one is in flight is rejected, not queued | See 3.8, 3.9, 3.10 | `docs/adr/0003-async-search-stop.md` |
 | 2026-07-26 | Defer magic bitboards past Milestone 1; sliding-piece attacks generated via loop/bit-shift ray walk over live occupancy for now | See 3.3 | — (settled here, no separate ADR needed) |
 | 2026-07-26 | Stage subsystem work as Correctness → Measurement → Optimization; benchmark suite triggers on changed source paths, not a commit tag | See 1.7, 3.11 | — (settled here, no separate ADR needed) |
 | 2026-07-25 | Colocated `.h`/`.cpp` per module in `src/`, no separate `include/` tree | See 1.1 | — (settled here, no separate ADR needed) |

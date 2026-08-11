@@ -21,6 +21,15 @@
       }
     },
     {
+      "name": "debug-tsan",
+      "displayName": "Debug + ThreadSanitizer",
+      "inherits": "debug",
+      "binaryDir": "${sourceDir}/build/debug-tsan",
+      "cacheVariables": {
+        "DAHLIA_ENABLE_TSAN": "ON"
+      }
+    },
+    {
       "name": "release",
       "displayName": "Release (portable)",
       "binaryDir": "${sourceDir}/build/release",
@@ -42,11 +51,13 @@
   "buildPresets": [
     { "name": "debug", "configurePreset": "debug" },
     { "name": "debug-asan", "configurePreset": "debug-asan" },
+    { "name": "debug-tsan", "configurePreset": "debug-tsan" },
     { "name": "release", "configurePreset": "release" },
     { "name": "release-native", "configurePreset": "release-native" }
   ],
   "testPresets": [
     { "name": "debug", "configurePreset": "debug" },
-    { "name": "debug-asan", "configurePreset": "debug-asan" }
+    { "name": "debug-asan", "configurePreset": "debug-asan" },
+    { "name": "debug-tsan", "configurePreset": "debug-tsan" }
   ]
 }

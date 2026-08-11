@@ -1,5 +1,7 @@
 #include <benchmark/benchmark.h>
 
+#include <atomic>
+
 #include "movegen/attacks.h"
 #include "position/position.h"
 #include "search/search.h"
@@ -28,7 +30,8 @@ void run_fixed_depth_search(benchmark::State& state, const char* fen) {
 		search::SearchLimits limits;
 		limits.depth = kFixedDepth;
 		search::TranspositionTable tt(16);
-		search::SearchResult result = search::think(pos, limits, tt);
+		std::atomic<bool> stop{false};
+		search::SearchResult result = search::think(pos, limits, tt, stop);
 		benchmark::DoNotOptimize(result);
 
 		state.counters["nodes"] = static_cast<double>(result.nodes);
