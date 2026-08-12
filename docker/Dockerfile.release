@@ -1,0 +1,61 @@
+FROM debian:bookworm AS build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        g++ cmake ninja-build \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+
+# Only what the `dahlia` target needs. Copying tests/ and bench/ as well would
+# bust the layer cache on every test edit for a build that never compiles them.
+COPY CMakeLists.txt ./
+COPY cmake/ cmake/
+COPY src/ src/
+
+# Mirrors the `release` preset (RelWithDebInfo -O3, no -march=native) with two
+# additions:
+#
+#   -static      makes the result independent of the target's glibc. Lightsail
+#                images span Ubuntu 20.04 (glibc 2.31) through Debian 12 (2.36),
+#                and a dynamically linked build from this image simply refuses
+#                to start on anything older than itself. Static glibc has real
+#                caveats -- dlopen, and NSS lookups like getaddrinfo -- but
+#                Dahlia touches neither: it is stdio, threads, and arithmetic.
+#                libpthread has been folded into libc since glibc 2.34, so
+#                std::thread links cleanly here.
+#
+#   TESTS/BENCH  off, because leaving them on makes CMake fetch Catch2 and
+#                Google Benchmark over the network to build targets this image
+#                never runs.
+RUN cmake -S . -B build -G Ninja \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DCMAKE_CXX_FLAGS="-O3" \
+        -DCMAKE_EXE_LINKER_FLAGS="-static" \
+        -DDAHLIA_BUILD_TESTS=OFF \
+        -DDAHLIA_BUILD_BENCHMARKS=OFF \
+    && cmake --build build
+
+# Debug info is most of the file size and is useless without the build tree.
+RUN strip build/dahlia
+
+# Fail here rather than at 3am on the instance. Releases deploy themselves once
+# a tag is pushed (see .github/workflows/release.yml), so this smoke test is the
+# last thing between a bad commit and the live site -- it checks the exact
+# artifact that ships, which no test run against a different build config can.
+RUN ldd build/dahlia 2>&1 | grep -Eq 'not a dynamic executable|statically linked'
+
+# A full handshake plus a real search from a real position. Asserting the move
+# is well-formed rules out `bestmove 0000`, which is what a search that found
+# nothing reports -- a binary that starts up and then returns no move would sail
+# past a bare `uciok` check. `sleep` outlives the 300ms budget with margin,
+# since this also runs under QEMU when cross-building from a laptop.
+RUN { printf 'uci\nisready\nucinewgame\nposition startpos moves e2e4 e7e5\ngo movetime 300\n'; \
+      sleep 2; printf 'quit\n'; } | ./build/dahlia > /tmp/uci.log \
+    && grep -q '^uciok$' /tmp/uci.log \
+    && grep -q '^readyok$' /tmp/uci.log \
+    && grep -Eq '^bestmove [a-h][1-8][a-h][1-8][qrbn]?$' /tmp/uci.log
+
+# `--output type=local` copies the contents of the final stage to the host, so
+# this stage exists to make that contents exactly one file.
+FROM scratch AS export
+COPY --from=build /src/build/dahlia /dahlia

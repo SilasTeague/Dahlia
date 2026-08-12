@@ -1,0 +1,99 @@
+name: Release
+
+# Pushing a v* tag publishes Linux binaries that the personal website's
+# instance picks up on its own (see deploy/dahlia-update.sh in that repo).
+# Nothing here touches a server: this only produces artifacts, and the
+# instance pulls. Tagging is therefore the deliberate act -- pushes to main
+# build and test as usual but ship nothing.
+on:
+  push:
+    tags: ["v*"]
+  # Lets the build be exercised without minting a tag. The publish job below
+  # is tag-gated, so a manual run stops after producing artifacts.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: gate (unit + perft)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # ci.yml runs the full compiler/sanitizer matrix on this same push. This
+      # is the narrower gate that release specifically will not proceed without.
+      - name: Configure
+        run: cmake --preset debug
+      - name: Build
+        run: cmake --build --preset debug
+      - name: Test
+        run: ctest --preset debug --output-on-failure
+
+  build:
+    name: build (${{ matrix.arch }})
+    needs: test
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-latest
+          - arch: arm64
+            # A native arm64 runner, so the container build isn't emulated.
+            # If this label ever stops being available on the free tier, add
+            # docker/setup-qemu-action@v3 and move this back to ubuntu-latest;
+            # the build itself is unchanged either way.
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      # Deliberately the same script used locally, so CI cannot drift from what
+      # a laptop build produces.
+      - name: Build static binary
+        run: scripts/build-release.sh ${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dahlia-linux-${{ matrix.arch }}
+          path: dist/dahlia-linux-${{ matrix.arch }}
+          if-no-files-found: error
+
+  publish:
+    name: publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      # The instance compares this file against what it has installed before
+      # downloading anything, so it is the mechanism, not a courtesy. Standard
+      # sha256sum format, one line per asset.
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum dahlia-linux-* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # Re-runnable: a retried workflow replaces the assets rather than
+          # failing on an already-existing release.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --title "$TAG" --generate-notes
+          fi
