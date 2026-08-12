@@ -38,11 +38,22 @@ RUN cmake -S . -B build -G Ninja \
 # Debug info is most of the file size and is useless without the build tree.
 RUN strip build/dahlia
 
-# Fail here rather than at 3am on the instance: assert the binary really is
-# static, then assert it actually speaks UCI. `uci` is answered before any
-# search state exists, so it exercises startup without needing a position.
+# Fail here rather than at 3am on the instance. Releases deploy themselves once
+# a tag is pushed (see .github/workflows/release.yml), so this smoke test is the
+# last thing between a bad commit and the live site -- it checks the exact
+# artifact that ships, which no test run against a different build config can.
 RUN ldd build/dahlia 2>&1 | grep -Eq 'not a dynamic executable|statically linked'
-RUN printf 'uci\nquit\n' | ./build/dahlia | grep -q '^uciok$'
+
+# A full handshake plus a real search from a real position. Asserting the move
+# is well-formed rules out `bestmove 0000`, which is what a search that found
+# nothing reports -- a binary that starts up and then returns no move would sail
+# past a bare `uciok` check. `sleep` outlives the 300ms budget with margin,
+# since this also runs under QEMU when cross-building from a laptop.
+RUN { printf 'uci\nisready\nucinewgame\nposition startpos moves e2e4 e7e5\ngo movetime 300\n'; \
+      sleep 2; printf 'quit\n'; } | ./build/dahlia > /tmp/uci.log \
+    && grep -q '^uciok$' /tmp/uci.log \
+    && grep -q '^readyok$' /tmp/uci.log \
+    && grep -Eq '^bestmove [a-h][1-8][a-h][1-8][qrbn]?$' /tmp/uci.log
 
 # `--output type=local` copies the contents of the final stage to the host, so
 # this stage exists to make that contents exactly one file.
