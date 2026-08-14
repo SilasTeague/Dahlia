@@ -7,18 +7,50 @@
 using search::SearchLimits;
 using search::time_budget_ms;
 
-TEST_CASE("clock: movetime is used verbatim", "[clock]") {
+// Every time-limited budget below is net of the move overhead; the tests set
+// it explicitly rather than leaning on kDefaultMoveOverheadMs so the arithmetic
+// stays readable if the default is retuned.
+
+TEST_CASE("clock: movetime is honoured minus the move overhead", "[clock]") {
 	SearchLimits limits;
 	limits.movetime_ms = 1500;
+	limits.move_overhead_ms = 10;
 	limits.wtime_ms = 60000;  // ignored in favour of the explicit movetime
-	CHECK(time_budget_ms(limits, WHITE) == 1500);
+	CHECK(time_budget_ms(limits, WHITE) == 1490);
 }
 
 TEST_CASE("clock: budget is base/20 + increment/2", "[clock]") {
 	SearchLimits limits;
 	limits.wtime_ms = 60000;
 	limits.winc_ms = 1000;
+	limits.move_overhead_ms = 0;
 	CHECK(time_budget_ms(limits, WHITE) == 3500);
+}
+
+TEST_CASE("clock: move overhead is subtracted from the clock-based budget", "[clock]") {
+	SearchLimits limits;
+	limits.wtime_ms = 60000;
+	limits.winc_ms = 1000;
+	limits.move_overhead_ms = 50;
+	CHECK(time_budget_ms(limits, WHITE) == 3450);
+}
+
+TEST_CASE("clock: overhead never drives the budget to zero or below", "[clock]") {
+	SearchLimits limits;
+	limits.movetime_ms = 5;
+	limits.move_overhead_ms = 500;  // absurd overhead, desperate time trouble
+	CHECK(time_budget_ms(limits, WHITE) == 1);
+
+	SearchLimits clock_limits;
+	clock_limits.wtime_ms = 20;
+	clock_limits.move_overhead_ms = 500;
+	CHECK(time_budget_ms(clock_limits, WHITE) == 1);
+}
+
+TEST_CASE("clock: a default-constructed limits reserves the default overhead", "[clock]") {
+	SearchLimits limits;
+	limits.movetime_ms = 100;
+	CHECK(time_budget_ms(limits, WHITE) == 100 - search::kDefaultMoveOverheadMs);
 }
 
 TEST_CASE("clock: budget uses the side-to-move's clock", "[clock]") {
@@ -27,12 +59,14 @@ TEST_CASE("clock: budget uses the side-to-move's clock", "[clock]") {
 	limits.winc_ms = 1000;
 	limits.btime_ms = 20000;
 	limits.binc_ms = 0;
+	limits.move_overhead_ms = 0;
 	CHECK(time_budget_ms(limits, BLACK) == 1000);
 }
 
 TEST_CASE("clock: no increment given means no increment term", "[clock]") {
 	SearchLimits limits;
 	limits.wtime_ms = 60000;
+	limits.move_overhead_ms = 0;
 	CHECK(time_budget_ms(limits, WHITE) == 3000);
 }
 
@@ -40,6 +74,7 @@ TEST_CASE("clock: movestogo at or above 20 doesn't change the divisor", "[clock]
 	SearchLimits limits;
 	limits.wtime_ms = 60000;
 	limits.movestogo = 40;
+	limits.move_overhead_ms = 0;
 	CHECK(time_budget_ms(limits, WHITE) == 3000);
 }
 
@@ -48,6 +83,7 @@ TEST_CASE("clock: movestogo below 20 tightens the divisor", "[clock]") {
 	limits.wtime_ms = 60000;
 	limits.winc_ms = 1000;
 	limits.movestogo = 5;
+	limits.move_overhead_ms = 0;
 	CHECK(time_budget_ms(limits, WHITE) == 12500);
 }
 
@@ -55,9 +91,12 @@ TEST_CASE("clock: budget never exceeds half the remaining clock", "[clock]") {
 	SearchLimits limits;
 	limits.wtime_ms = 1000;
 	limits.winc_ms = 30000;  // huge increment relative to the clock
+	limits.move_overhead_ms = 0;
 	CHECK(time_budget_ms(limits, WHITE) == 500);
 }
 
+// The two budgets below aren't GUI deadlines, so the overhead reserve doesn't
+// apply to them even though these limits carry the default overhead.
 TEST_CASE("clock: bare go gets a fixed anytime budget", "[clock]") {
 	SearchLimits limits;
 	CHECK(time_budget_ms(limits, WHITE) == 200);
