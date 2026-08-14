@@ -1,0 +1,74 @@
+{
+  "commit": "848941a",
+  "dirty": false,
+  "tag": "",
+  "timestamp": "2026-08-14T20:56:44Z",
+  "compiler": "Apple clang version 14.0.3 (clang-1403.0.22.14.1)",
+  "build": "RelWithDebInfo",
+  "cxx_flags": "-O2 -g",
+  "repetitions": 5,
+  "cpu": "Apple M2",
+  "benchmarks": {
+    "microbench": [
+      {
+        "name": "BM_SquareBBShift",
+        "real_time": 0.29687767987141295,
+        "cpu_time": 0.29506955090605397,
+        "time_unit": "ns"
+      },
+      {
+        "name": "BM_RookAttacksLookup",
+        "real_time": 8.276693963686748,
+        "cpu_time": 8.2759104233032,
+        "time_unit": "ns"
+      },
+      {
+        "name": "BM_BishopAttacksLookup",
+        "real_time": 5.045906249433756,
+        "cpu_time": 5.032659999999981,
+        "time_unit": "ns"
+      },
+      {
+        "name": "BM_QueenAttacksLookup",
+        "real_time": 13.849346941792769,
+        "cpu_time": 13.849282027219152,
+        "time_unit": "ns"
+      },
+      {
+        "name": "BM_GeneratePseudoLegalMoves_StartPosition",
+        "real_time": 78.91006521445854,
+        "cpu_time": 78.84933459948442,
+        "time_unit": "ns"
+      }
+    ],
+    "search_bench": [
+      {
+        "name": "BM_Search_Opening",
+        "real_time": 2.416607383908569,
+        "cpu_time": 2.416467391304352,
+        "time_unit": "ms",
+        "nodes": 34195.0,
+        "nodes_per_second": 14150822.031801702,
+        "depth_reached": 5.0
+      },
+      {
+        "name": "BM_Search_Middlegame",
+        "real_time": 15.242294408380985,
+        "cpu_time": 15.241869565217304,
+        "time_unit": "ms",
+        "nodes": 145195.0,
+        "nodes_per_second": 9526062.362542594,
+        "depth_reached": 5.0
+      },
+      {
+        "name": "BM_Search_Endgame",
+        "real_time": 0.10357829039131734,
+        "cpu_time": 0.10345615850953875,
+        "time_unit": "ms",
+        "nodes": 820.0,
+        "nodes_per_second": 7926062.709204453,
+        "depth_reached": 5.0
+      }
+    ]
+  }
+}

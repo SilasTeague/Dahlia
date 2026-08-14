@@ -7,6 +7,7 @@
 
 #include "core/move.h"
 #include "core/types.h"
+#include "position/history.h"
 #include "position/position.h"
 #include "search/tt.h"
 
@@ -65,7 +66,14 @@ using InfoCallback = std::function<void(const std::string& line)>;
 // one. `on_info`, if given, is called with one complete line per completed
 // depth; think() never writes to any stream itself, so the caller decides
 // how to serialize output across threads.
+//
+// `history` is the line of positions played before `pos`, which the search
+// needs to score threefold repetitions correctly; the default -- no history
+// -- means "the game starts at `pos`", which only costs the search the
+// repetitions it can't see anyway. think() copies it and leaves the caller's
+// copy untouched.
 SearchResult think(Position& pos, const SearchLimits& limits, TranspositionTable& tt,
-                    std::atomic<bool>& stop_requested, const InfoCallback& on_info = nullptr);
+                    std::atomic<bool>& stop_requested, const InfoCallback& on_info = nullptr,
+                    const PositionHistory& history = PositionHistory{});
 
 }  // namespace search

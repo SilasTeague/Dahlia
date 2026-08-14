@@ -6,6 +6,7 @@ add_executable(dahlia_unit_tests
 	test_eval.cpp
 	test_search.cpp
 	test_search_nodes.cpp
+	test_repetition.cpp
 	test_tt.cpp
 	test_clock.cpp
 )
