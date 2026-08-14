@@ -20,14 +20,21 @@ bool is_mate_score(int16_t score) {
 	return score >= kMateThreshold || score <= -kMateThreshold;
 }
 
+// A draw is worth exactly as much as an equal position: neither side gains
+// by steering into one. (A contempt factor -- preferring a fight over a draw
+// against weaker opposition -- is a later, separately measurable change.)
+constexpr int16_t kDrawScore = 0;
+
 // Mutable state threaded through negamax for a single think() call: node
-// count, the deadline/stop flag, and the move chosen at the root.
-// `stop_requested` is a reference to the caller's atomic, not an owned flag
-// -- a UCI `stop` on another thread needs to reach it mid-search.
+// count, the deadline/stop flag, the line of positions reached so far, and
+// the move chosen at the root. `stop_requested` is a reference to the
+// caller's atomic, not an owned flag -- a UCI `stop` on another thread needs
+// to reach it mid-search.
 struct SearchState {
 	std::atomic<bool>& stop_requested;
 	std::chrono::steady_clock::time_point deadline;
 	uint64_t nodes = 0;
+	PositionHistory history;
 	Move root_best_move{NULL_SQUARE, NULL_SQUARE};
 
 	explicit SearchState(std::atomic<bool>& stop) : stop_requested(stop) {}
@@ -60,6 +67,11 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 	// Node-count modulus, not every node -- too slow per-node, too rare misses the time control.
 	if ((state.nodes & 0x7FF) == 0 && time_up(state)) state.stop_requested.store(true, std::memory_order_relaxed);
 	if (state.stop_requested.load(std::memory_order_relaxed)) return eval::evaluate(pos);
+
+	// Before the TT probe: the table may well hold a real score for this key
+	// from a line where it wasn't a repetition, and along *this* line the game
+	// is over. The root is exempt -- it still has to return a move.
+	if (ply > 0 && is_repetition_draw(state.history, pos, ply)) return kDrawScore;
 
 	int16_t orig_alpha = alpha;
 	Move tt_move{NULL_SQUARE, NULL_SQUARE};
@@ -98,6 +110,10 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 	// Fail-soft: `best` tracks the true best score rather than clamping to [alpha, beta].
 	int16_t best = static_cast<int16_t>(-kInfiniteScore);
 	Move best_move = moves.moves[0];
+	// This position is now an ancestor of everything the loop searches, and
+	// make/unmake leaves its key untouched -- so it goes on the line once, not
+	// once per move.
+	state.history.push(pos.zobrist_key);
 	for (int i = 0; i < moves.count; i++) {
 		StateInfo undo;
 		make_move(pos, moves.moves[i], undo);
@@ -115,6 +131,7 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 
 		if (state.stop_requested.load(std::memory_order_relaxed)) break;
 	}
+	state.history.pop();
 
 	// Don't cache a score from a search the clock cut short.
 	if (!state.stop_requested.load(std::memory_order_relaxed)) {
@@ -129,9 +146,11 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 }  // namespace
 
 SearchResult think(Position& pos, const SearchLimits& limits, TranspositionTable& tt,
-                    std::atomic<bool>& stop_requested, const InfoCallback& on_info) {
+                    std::atomic<bool>& stop_requested, const InfoCallback& on_info,
+                    const PositionHistory& history) {
 	tt.new_search();
 	SearchState state(stop_requested);
+	state.history = history;  // the search pushes/pops its own moves on top of the played game
 	auto start = std::chrono::steady_clock::now();
 	state.deadline = start + std::chrono::milliseconds(time_budget_ms(limits, pos.side_to_move));
 

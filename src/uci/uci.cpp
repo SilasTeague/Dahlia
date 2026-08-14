@@ -10,6 +10,7 @@
 
 #include "movegen/attacks.h"
 #include "movegen/movegen.h"
+#include "position/history.h"
 #include "position/position.h"
 #include "search/search.h"
 
@@ -61,7 +62,13 @@ Move move_from_uci(std::string_view s) {
 }
 
 // "position [startpos | fen <fen fields>] [moves <uci moves...>]"
-void handle_position(std::istringstream& iss, Position& pos) {
+//
+// The move list is also where the engine learns which positions have already
+// occurred: GUIs re-send the whole game on every `position`, so `history` is
+// rebuilt from scratch rather than appended to.
+void handle_position(std::istringstream& iss, Position& pos, PositionHistory& history) {
+	history.clear();
+
 	std::string token;
 	iss >> token;
 
@@ -84,6 +91,7 @@ void handle_position(std::istringstream& iss, Position& pos) {
 	if (token == "moves") {
 		std::string move_str;
 		while (iss >> move_str) {
+			history.push(pos.zobrist_key);  // the position this move is played *from*
 			StateInfo undo;  // discarded: UCI applies moves forward only, no unmake needed
 			make_move(pos, move_from_uci(move_str), undo);
 		}
@@ -170,12 +178,13 @@ class Engine {
 	// against a concurrent search is needed here (REFERENCE.md 3.10).
 	void handle_ucinewgame() {
 		pos_ = parse_fen(kStartFen);
+		history_.clear();
 		tt_.clear();
 	}
 
 	void handle_setoption(std::istringstream& iss) { ::handle_setoption(iss, tt_, move_overhead_ms_); }
 
-	void handle_position(std::istringstream& iss) { ::handle_position(iss, pos_); }
+	void handle_position(std::istringstream& iss) { ::handle_position(iss, pos_, history_); }
 
 	// A `go` that arrives while a search is already running is rejected
 	// outright rather than queued -- see docs/adr/0003-async-search-stop.md.
@@ -190,15 +199,16 @@ class Engine {
 		search_running_.store(true, std::memory_order_relaxed);
 
 		search_thread_ = std::thread(
-			[this](Position search_pos, search::SearchLimits search_limits) {
+			[this](Position search_pos, PositionHistory search_history, search::SearchLimits search_limits) {
 				auto on_info = [this](const std::string& line) { write_line(line); };
-				search::SearchResult result = search::think(search_pos, search_limits, tt_, stop_requested_, on_info);
+				search::SearchResult result =
+					search::think(search_pos, search_limits, tt_, stop_requested_, on_info, search_history);
 
 				write_line(result.best_move.from == NULL_SQUARE ? "bestmove 0000"
 				                                                 : "bestmove " + move_to_uci(result.best_move));
 				search_running_.store(false, std::memory_order_relaxed);
 			},
-			pos_, limits);
+			pos_, history_, limits);
 	}
 
 	// Signals the search thread; does not block waiting for it to finish, so
@@ -223,6 +233,7 @@ class Engine {
 	std::mutex io_mutex_;
 
 	Position pos_;
+	PositionHistory history_;
 	search::TranspositionTable tt_{kDefaultHashMb};
 	// Read on the reader thread when launching a search, written only by
 	// setoption -- which UCI guarantees never arrives mid-search -- so it

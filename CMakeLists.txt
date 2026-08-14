@@ -25,6 +25,7 @@ add_library(dahlia_core
 	src/eval/evaluate.cpp
 	src/movegen/attacks.cpp
 	src/movegen/movegen.cpp
+	src/position/history.cpp
 	src/position/position.cpp
 	src/position/zobrist.cpp
 	src/search/clock.cpp
