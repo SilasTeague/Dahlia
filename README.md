@@ -197,9 +197,10 @@ the leaf. Quiescence search is what fixes this
 | `go nodes`, `searchmoves`, `ponder`, `Threads` | not implemented (unrecognized tokens are ignored, not errors) |
 
 Time management converts the `go` clock parameters into a single-move budget
-(`time_left / movestogo + increment`, capped at half the remaining clock), with `movestogo`
-defaulting to 30 when the GUI doesn't supply it. A bare `go` with no time control at all gets a
-200 ms anytime budget rather than searching forever.
+(`time_left / 20 + increment / 2`, capped at half the remaining clock). `movestogo`, when the GUI
+supplies it, only tightens the divisor — below 20 moves to the next time control the budget becomes
+`time_left / movestogo + increment / 2` so the clock isn't left unspent at the control. A bare `go`
+with no time control at all gets a 200 ms anytime budget rather than searching forever.
 
 ---
 
