@@ -7,6 +7,7 @@ add_executable(dahlia_unit_tests
 	test_search.cpp
 	test_search_nodes.cpp
 	test_tt.cpp
+	test_clock.cpp
 )
 target_link_libraries(dahlia_unit_tests PRIVATE dahlia_core Catch2::Catch2WithMain)
 

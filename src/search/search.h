@@ -15,9 +15,15 @@
 // move (MVV-LVA, killers, history) and quiescence are still deferred.
 namespace search {
 
+// Milliseconds held back from every time-limited search to cover the gap
+// between search returning and the GUI seeing `bestmove` (REFERENCE.md 3.9).
+// Overridable via the `Move Overhead` UCI option.
+constexpr long long kDefaultMoveOverheadMs = 10;
+
 // UCI `go` parameters, already parsed out of protocol tokens. -1 means
 // "not given" for the millisecond fields; 0 means "not given" for depth/
-// movestogo.
+// movestogo. `move_overhead_ms` is the exception: it comes from `setoption`,
+// not `go`, and is stamped in by the caller when a search is launched.
 struct SearchLimits {
 	int depth = 0;
 	long long movetime_ms = -1;
@@ -27,6 +33,7 @@ struct SearchLimits {
 	long long binc_ms = 0;
 	int movestogo = 0;
 	bool infinite = false;
+	long long move_overhead_ms = kDefaultMoveOverheadMs;
 };
 
 struct SearchResult {

@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -67,6 +68,47 @@ TEST_CASE("uci: uci command produces uciok", "[uci]") {
 	auto lines = lines_of(out.str());
 	CHECK(any_line_starts_with(lines, "id name"));
 	CHECK(any_line_is(lines, "uciok"));
+}
+
+TEST_CASE("uci: declares the Move Overhead option", "[uci]") {
+	std::istringstream in("uci\nquit\n");
+	std::ostringstream out;
+	run_uci_loop(in, out);
+
+	CHECK(any_line_starts_with(lines_of(out.str()), "option name Move Overhead type spin "));
+}
+
+TEST_CASE("uci: multi-word setoption names are matched whole", "[uci]") {
+	// "Move Overhead" arrives as two tokens; a parser that joined them without
+	// the space (or stopped at the first) would silently ignore this, so the
+	// observable effect -- a shorter search -- is what's checked. 400 ms of
+	// overhead against a 500 ms movetime leaves ~100 ms of search.
+	std::istringstream in(
+		"setoption name Move Overhead value 400\nposition startpos\ngo movetime 500\nquit\n");
+	std::ostringstream out;
+
+	auto start = std::chrono::steady_clock::now();
+	run_uci_loop(in, out);
+	auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::steady_clock::now() - start).count();
+
+	CHECK(any_line_starts_with(lines_of(out.str()), "bestmove "));
+	CHECK(elapsed < 400);
+}
+
+TEST_CASE("uci: movetime search reserves the move overhead", "[uci]") {
+	// The regression this guards: replying at exactly `movetime` forfeits
+	// against a GUI with a zero time margin (cutechess-cli's default).
+	std::istringstream in("position startpos\ngo movetime 200\nquit\n");
+	std::ostringstream out;
+
+	auto start = std::chrono::steady_clock::now();
+	run_uci_loop(in, out);
+	auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::steady_clock::now() - start).count();
+
+	CHECK(any_line_starts_with(lines_of(out.str()), "bestmove "));
+	CHECK(elapsed < 200);
 }
 
 TEST_CASE("uci: isready produces readyok", "[uci]") {

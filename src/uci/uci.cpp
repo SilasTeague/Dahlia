@@ -17,6 +17,7 @@ namespace {
 
 constexpr const char* kStartFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 constexpr int kDefaultHashMb = 16;
+constexpr long long kMaxMoveOverheadMs = 1000;
 
 std::string square_to_uci(Square sq) {
 	std::string s;
@@ -109,15 +110,25 @@ search::SearchLimits parse_go_limits(std::istringstream& iss) {
 	return limits;
 }
 
-// "setoption name Hash value <MB>" -- the only UCI option Dahlia declares so far.
-void handle_setoption(std::istringstream& iss, search::TranspositionTable& tt) {
+// "setoption name <Hash|Move Overhead> value <N>". Option names can be
+// multi-word ("Move Overhead"), so the name tokens are rejoined with the
+// single spaces the protocol splits them on. Out-of-range values are ignored,
+// leaving the current setting in place.
+void handle_setoption(std::istringstream& iss, search::TranspositionTable& tt, long long& move_overhead_ms) {
 	std::string token;
 	iss >> token;  // "name"
 	std::string name;
-	while (iss >> token && token != "value") name += token;
-	if (name != "Hash") return;
-	int megabytes = 0;
-	if (iss >> megabytes && megabytes > 0) tt.resize(static_cast<size_t>(megabytes));
+	while (iss >> token && token != "value") {
+		if (!name.empty()) name += ' ';
+		name += token;
+	}
+	if (name == "Hash") {
+		int megabytes = 0;
+		if (iss >> megabytes && megabytes > 0) tt.resize(static_cast<size_t>(megabytes));
+	} else if (name == "Move Overhead") {
+		long long overhead = 0;
+		if (iss >> overhead && overhead >= 0 && overhead <= kMaxMoveOverheadMs) move_overhead_ms = overhead;
+	}
 }
 
 // Owns the position/TT/search-thread state for one UCI session. `go` runs
@@ -144,6 +155,8 @@ class Engine {
 		out_ << "id name Dahlia\n";
 		out_ << "id author Silas Teague\n";
 		out_ << "option name Hash type spin default " << kDefaultHashMb << " min 1 max 1024\n";
+		out_ << "option name Move Overhead type spin default " << search::kDefaultMoveOverheadMs
+		     << " min 0 max " << kMaxMoveOverheadMs << "\n";
 		out_ << "uciok\n";
 		out_.flush();
 	}
@@ -160,7 +173,7 @@ class Engine {
 		tt_.clear();
 	}
 
-	void handle_setoption(std::istringstream& iss) { ::handle_setoption(iss, tt_); }
+	void handle_setoption(std::istringstream& iss) { ::handle_setoption(iss, tt_, move_overhead_ms_); }
 
 	void handle_position(std::istringstream& iss) { ::handle_position(iss, pos_); }
 
@@ -168,6 +181,7 @@ class Engine {
 	// outright rather than queued -- see docs/adr/0003-async-search-stop.md.
 	void handle_go(std::istringstream& iss) {
 		search::SearchLimits limits = parse_go_limits(iss);
+		limits.move_overhead_ms = move_overhead_ms_;  // from setoption, not from `go`
 		if (search_running_.load(std::memory_order_relaxed)) return;
 
 		if (search_thread_.joinable()) search_thread_.join();  // reap the previous (finished) search
@@ -210,6 +224,11 @@ class Engine {
 
 	Position pos_;
 	search::TranspositionTable tt_{kDefaultHashMb};
+	// Read on the reader thread when launching a search, written only by
+	// setoption -- which UCI guarantees never arrives mid-search -- so it
+	// needs no synchronization; the value is copied into the limits the
+	// search thread gets.
+	long long move_overhead_ms_ = search::kDefaultMoveOverheadMs;
 
 	std::atomic<bool> stop_requested_{false};
 	std::atomic<bool> search_running_{false};
