@@ -56,6 +56,9 @@ measure the replacement against:
 - The transposition table was added *after* plain alpha-beta worked, so its effect could be
   quoted as a real before/after node-count delta rather than an assumption.
   ([See the numbers.](#the-transposition-table-milestone-4))
+- Move ordering was added one heuristic at a time — MVV-LVA, then killers, then history — each
+  measured on its own rather than landed as a single "move ordering" commit whose parts can't be
+  told apart. ([See the numbers.](#move-ordering-and-quiescence-milestone-4))
 
 Every performance claim in this README is traceable to a committed JSON file under
 [`bench/results/history/`](bench/results/history).
@@ -79,7 +82,7 @@ util  ←  core  ←  movegen  ←  position  ←  search  ←  uci
 | `movegen/` | attack tables, ray-walk sliding attacks, pseudo-legal + legal generation | knowing about search or eval |
 | `position/` | board state, FEN in/out, make/unmake, Zobrist hashing | scoring or choosing moves |
 | `eval/` | material-only static evaluation (v0) | anything search-dependent |
-| `search/` | negamax alpha-beta, iterative deepening, transposition table, time budget | I/O of any kind |
+| `search/` | negamax alpha-beta, iterative deepening, transposition table, move ordering, quiescence, time budget | I/O of any kind |
 | `uci/` | protocol loop, search thread ownership, output serialization | being depended on by anything |
 
 A few properties worth calling out:
@@ -344,9 +347,9 @@ change did to the tree, reviewable in place. It's the same pattern as the perft 
 values, for the same reason ([ADR 0004](docs/adr/0004-node-counts-in-ci-timing-local.md)).
 
 Those counts are specified at a fixed 16 MB hash: node count legitimately falls as the
-transposition table grows (146,584 nodes at 1 MB down to 145,076 at 256 MB, flattening as
-replacement stops thrashing), so the hash size is part of the specification. What the test
-asserts across hash sizes instead is the **score and best move** — which is also the first
+transposition table grows (164,722 nodes at 1 MB down to 161,277 at 16 MB, flat from there to
+256 MB as replacement stops thrashing), so the hash size is part of the specification. What the
+test asserts across hash sizes instead is the **score and best move** — which is also the first
 thing that would break if the TT ever returned an entry belonging to a different position.
 
 ### The transposition table (Milestone 4)
@@ -373,6 +376,66 @@ iteration inside the timed region. That's since been
 [fixed](#a-note-on-the-numbers-before-2026-08-14), which drops the endgame's measured time from
 0.345 ms to 0.103 ms. The anomaly is left in the table rather than quietly dropped, because a
 benchmark suite you only cite when it agrees with you isn't a benchmark suite.
+
+### Move ordering and quiescence (Milestone 4)
+
+Alpha-beta's node count is decided almost entirely by how early the best move gets searched, so
+the four Milestone 4 changes were landed and measured **one at a time**. Same machine, same
+build, **nodes to reach depth 7** — cumulative across the iterative-deepening iterations, which
+is the search's real cost:
+
+| After adding | Opening | Middlegame (Kiwipete) | Tactical | Endgame (K+P) |
+|---|---:|---:|---:|---:|
+| *(Milestone 3 baseline)* | 828,549 | 4,866,267 | 11,835,157 | 3,739 |
+| MVV-LVA capture ordering | 502,967 | 1,394,445 | 3,044,039 | 3,754 |
+| \+ killer moves | 371,750 | 1,392,651 | 2,124,130 | 4,028 |
+| \+ history heuristic | 345,941 | 1,384,999 | 1,959,027 | 4,046 |
+| \+ quiescence search | 370,254 | 2,431,525 | 2,326,309 | 6,349 |
+| **Net change** | **−55.3%** | **−50.0%** | **−80.3%** | **+69.8%** |
+
+Reading this honestly matters more than the headline number:
+
+- **MVV-LVA did most of the work.** Ordering captures by what they win, before what they risk,
+  cut the tactical position by 74% on its own. Nothing else in the milestone comes close.
+- **Killers and history helped where MVV-LVA couldn't.** Both only rank *quiet* moves, so their
+  gains land in the opening position (down another 31%), which has few captures to order, and
+  are nearly invisible on Kiwipete, where MVV-LVA had already found the cutoffs.
+- **The K+P endgame got worse at every step, and that's expected.** It has no captures to order
+  and almost no quiets worth remembering, so ordering adds bookkeeping and returns nothing.
+  A position with nothing to order is where ordering costs you.
+- **Quiescence *raises* node counts and is still the most valuable change here.** It adds a
+  capture-resolving search at every leaf, so "nodes to depth 7" now buys strictly more than it
+  used to. Judging it by node count alone would be measuring the wrong thing — see below.
+
+The metric that shows what quiescence bought is **depth reached in a fixed 5 seconds**:
+
+| Position | Milestone 3 | Milestone 4 | Nodes at M3's depth |
+|---|---:|---:|---|
+| Opening | 9 | **10** | 15,347,198 → 5,957,927 |
+| Middlegame (Kiwipete) | 7 | **8** | 4,866,267 → 2,431,525 |
+| Endgame (K+P) | 25 | **27** | — |
+| Tactical | 8 | 8 | 25,004,055 → 7,539,050 |
+
+And the behaviour it fixes is directly observable. On `4k3/8/2p1p3/3p4/8/8/8/3QK3 w - -`, where
+the d5 pawn is defended twice, a depth-1 search before Milestone 4 played **Qxd5 and scored it
++700** — it watched the pawn come off and stopped looking one ply before `cxd5`. The same search
+today declines the capture and scores the position +600, its true material value. That position
+is checked in as a regression test
+([`test_quiescence.cpp`](tests/unit/test_quiescence.cpp)).
+
+On the [Win At Chess](tests/unit/test_tactics.cpp) subset checked into the test suite, the
+engine went from **13/18 to 14/18** solved at depth 7. The modest jump is the honest result:
+the four it still misses are not search failures. They need an evaluation that understands pawn
+structure and king safety, and they fail identically at one second per move as at depth 7 —
+which makes them Milestone 5's problem, not Milestone 4's. They're checked in as a documented
+known-failure list rather than omitted.
+
+One implementation note worth recording, because it cost a 2× slowdown before it was caught:
+quiescence generates **pseudo-legal** moves and proves legality using the `make_move` it already
+performs for the recursion. Calling `generate_legal_moves` instead — which make/unmakes every
+move to filter it — meant paying full legality checks on ~35 quiet moves in order to search 4
+captures, and it dropped middlegame throughput from 5.4M to 2.5M nodes/sec
+([ADR 0005](docs/adr/0005-quiescence-pseudo-legal-movegen.md)).
 
 ### Movegen baseline
 
@@ -423,7 +486,7 @@ leave `master` in a buildable, UCI-playable state.
 | 1 | **Core types, `Move`, move generation** — attack tables, ray-walk sliding attacks, perft-verified | ✅ Complete |
 | 2 | **`Position`, make/unmake, Zobrist, minimal UCI** — legal game playable in a real GUI | ✅ Complete |
 | 3 | **Material eval + alpha-beta** — negamax, iterative deepening, time management | ✅ Complete |
-| 4 | **Move ordering, quiescence, TT** | 🚧 In progress — TT and TT-move ordering landed; MVV-LVA, killers, history, and quiescence remain |
+| 4 | **Move ordering, quiescence, TT** | ✅ Complete — TT, MVV-LVA, killers, history, quiescence ([numbers](#move-ordering-and-quiescence-milestone-4)) |
 | 5 | **PVS, piece-square tables / tapered eval, null-move pruning** | ⬜ Not started |
 | 6 | **Aspiration windows, late move reductions** | ⬜ Not started |
 | 7 | **Polish & portfolio packaging** — architecture diagrams, full option set, strength estimate | 🚧 Partial — this README, the live deployment, and the release pipeline are done |
@@ -455,6 +518,7 @@ Contested decisions are recorded rather than re-litigated. Full ADRs live in
 | [CMake as the build system of record](docs/adr/0002-cmake-migration.md) | Library/executable/test/bench target separation, sanitizers, `FetchContent`; the Makefile survives only as a thin wrapper with no logic of its own |
 | [Async search; concurrent `go` rejected, not queued](docs/adr/0003-async-search-stop.md) | Queueing means answering "what does a *third* `go` do", for a case no compliant GUI produces |
 | [Node counts in CI, timing local and manual](docs/adr/0004-node-counts-in-ci-timing-local.md) | Deterministic and noisy metrics have opposite needs; one mechanism for both forced timing's weaknesses onto node counts, which need no tolerance band at all |
+| [Quiescence generates pseudo-legal moves](docs/adr/0005-quiescence-pseudo-legal-movegen.md) | Filtering a *legal* move list pays a make/unmake for ~35 quiet moves to search ~4 captures; halved engine throughput with every test still green |
 | [`Move` stays a plain struct](REFERENCE.md) | Bit-packing is deferred until a benchmark shows move-list/TT cache pressure actually matters |
 | [Feature branch + PR for every change](REFERENCE.md) | The PR description is where design rationale and before/after numbers live |
 
@@ -495,13 +559,21 @@ Stated plainly, because a portfolio README that only lists strengths isn't an en
 document:
 
 - **Evaluation is material-only.** No piece-square tables, no mobility, no king safety. The
-  engine counts wood and nothing else, so its positional play is weak by construction.
-- **No quiescence search**, so the engine is subject to the horizon effect: a capture sequence
-  that resolves one ply past the search depth is scored as though it never happened.
-- **Move ordering is TT-move-only.** No MVV-LVA, killers, or history heuristic yet, which is the
-  single largest available reduction in tree size.
+  engine counts wood and nothing else, so its positional play is weak by construction. This is
+  now the binding constraint on strength rather than search: the four Win At Chess positions the
+  test suite records as failures all need an evaluation term the engine doesn't have, and
+  searching them deeper doesn't help. Piece-square tables and tapered eval are Milestone 5.
+- **Quiescence doesn't handle checks.** A node that is *in check* still stands pat as though the
+  side to move could decline, and a mate appearing exactly at a quiescence leaf is scored as
+  material. Every mate at depth 1 or deeper is still found by the main search; only the
+  horizon-leaf case is missed.
+- **Move ordering has no SEE.** MVV-LVA ranks captures by what they take, with no notion of
+  whether the victim is defended, so QxP-into-a-recapture is searched at the same priority as a
+  genuinely winning QxP. That costs nodes, never correctness — quiescence still scores the
+  exchange correctly once it searches it.
 - **No strength estimate.** No SPRT match has been run, so Dahlia has no Elo figure and this
-  README deliberately doesn't invent one. SPRT tooling lands with Milestone 4's completion.
+  README deliberately doesn't invent one. The Milestone 4 tag is the first version worth running
+  one against; the match tooling lives outside this repository.
 - **Timing regressions depend on remembering to run the script.** Node-count regressions are
   caught automatically on every push, but wall-clock ones surface only when
   `scripts/run_benchmarks.sh` is run. Accepted deliberately: an unreliable automated timing

@@ -453,11 +453,11 @@ class TranspositionTable {
 **Responsibilities, staged (see [Roadmap](#part-v--staged-roadmap) for milestone mapping):**
 1. Plain negamax alpha-beta, fixed depth.
 2. Iterative deepening (depth 1..N, using each depth's result to inform the next — also enables anytime behavior for time control).
-3. Quiescence search at leaf nodes (resolve captures to avoid horizon effect) — a documented, common source of subtle bugs, isolate and unit-test its termination condition explicitly (stand-pat, delta pruning).
-4. Move ordering: TT move first, then captures (MVV-LVA), then killer moves, then history heuristic, then remaining quiets.
+3. Quiescence search at leaf nodes (resolve captures to avoid horizon effect) — a documented, common source of subtle bugs, isolate and unit-test its termination condition explicitly (stand-pat, delta pruning). *Landed 2026-08-14 (Milestone 4).* Stand-pat, delta pruning with a two-pawn margin, and captures plus promotions only; termination is structural rather than depth-limited (every move made either removes a piece or promotes a pawn, both monotone and bounded). Moves are generated pseudo-legally and proved legal on `make_move` — see `docs/adr/0005-quiescence-pseudo-legal-movegen.md`. Not yet done: check evasions, mate detection at the horizon, TT probes inside quiescence.
+4. Move ordering: TT move first, then captures (MVV-LVA), then killer moves, then history heuristic, then remaining quiets. *Landed 2026-08-14 (Milestone 4), in `search/ordering.h`.* Scores are assigned once per node into numerically disjoint bands, then drawn out by selection sort one move at a time — a node that cuts off on its first move never ranks the rest. Band separation is a load-bearing invariant, not a tidiness preference: quiescence relies on "the first quiet move to surface means no captures remain" to stop scanning, and `test_ordering.cpp` pins it. No SEE, so a capture's ordering says nothing about whether the victim is defended.
 5. Principal Variation Search (PVS): full window on the first move at each node, null-window (scout) search on the rest, re-search on fail-high.
-6. Killer move heuristic (2 killers per ply, indexed by ply not by node, cleared appropriately).
-7. History heuristic (indexed `[side][from][to]` or `[side][piece][to]`, aged/decayed to avoid stale saturation).
+6. Killer move heuristic (2 killers per ply, indexed by ply not by node, cleared appropriately). *Landed 2026-08-14 (Milestone 4).* Owned by the per-search state and therefore cleared with it: killers are claims about the shape of *this* tree, and the position has moved on by the next `go`.
+7. History heuristic (indexed `[side][from][to]` or `[side][piece][to]`, aged/decayed to avoid stale saturation). *Landed 2026-08-14 (Milestone 4).* `[side][from][to]`, bonused by depth² on quiet beta cutoffs, and halved across the side's whole table when any entry saturates — halving rather than clamping, so the relative ranking the ordering actually reads survives. Owned by the caller and cleared on `ucinewgame`, like the TT, because its value comes from accumulating across the moves of one game.
 8. Null-move pruning (with zugzwang guard — disable in low-material/pawn-only endgames where null move is unsound).
 9. Aspiration windows around the previous iteration's score.
 10. Late move reductions (reduce search depth for late, quiet, non-critical moves in ordered move list; re-search at full depth on fail-high).
@@ -630,10 +630,17 @@ Every milestone must leave `master` in a working, UCI-playable state (even Miles
 
 ### Milestone 4: Move Ordering, Quiescence, TT
 - **Goals:** search efficiency — same or better tactical strength at dramatically lower node counts.
-- **Deliverables:** MVV-LVA capture ordering, killer heuristic, history heuristic, quiescence search, transposition table.
+- **Deliverables:** MVV-LVA capture ordering, killer heuristic, history heuristic, quiescence search, transposition table. **All landed** (TT 2026-08-03, the rest 2026-08-14).
 - **Benchmarks:** nodes-to-reach-depth-N before/after each of these, individually, per PR (1.7's discipline); TT hit rate tracked.
 - **Tests:** quiescence termination/stand-pat unit tests; TT correctness tests (verification tag prevents wrong-position hits); expanded tactical suite (e.g., a checked-in subset of a standard EPD tactics suite).
 - **Success criteria:** measurable EBF reduction vs. Milestone 3 baseline at the same benchmark positions; first SPRT match run and recorded against Milestone 3's tag, expecting a clear Elo gain.
+
+**Status (2026-08-14).** Search work complete and measured. Nodes to depth 7 fell 55% (opening), 50% (Kiwipete) and 80% (a tactical opening position) against the Milestone 3 baseline; EBF on Kiwipete fell from 14.2 to 6.0; depth reached in a fixed 5 s rose by one to two plies on every benchmark position. The Win At Chess subset went 13/18 → 14/18 at depth 7, with all four remaining failures traced to the material-only evaluation rather than to search — recorded as a known-failure list in `tests/unit/test_tactics.cpp` and now the binding constraint on strength (Milestone 5's work).
+
+Two deviations from the plan above, both deliberate:
+
+- **The tactical suite is embedded in `tests/unit/test_tactics.cpp` rather than read from `tests/data/*.epd`.** A file-backed suite makes the test depend on the working directory, so it behaves differently under `ctest`, an IDE runner, and a bare `./dahlia_unit_tests`. The `bm` field of each source record is translated to UCI in the table and the WAC id is retained, so each position is still traceable to the published suite. `tests/data/` remains in 1.1's target layout for suites too large to embed.
+- **The SPRT match has not been run.** It is not an engine deliverable — the match rig, opening book, and rating ladder live in a separate repository — so it does not gate this milestone's code. Milestone 4 is the first tag worth running one against, and the README states plainly that Dahlia has no Elo figure rather than inventing one.
 
 ### Milestone 5: PVS, PSTs/Tapered Eval, Null-Move Pruning
 - **Goals:** stronger search algorithm and richer evaluation.
@@ -699,6 +706,8 @@ Record contested decisions here as they're made, newest first. Full-form ADRs fo
 
 | Date | Decision | Summary | ADR |
 |---|---|---|---|
+| 2026-08-14 | Quiescence generates pseudo-legal moves and proves legality via the `make_move` it already performs, rather than calling `generate_legal_moves`; a dedicated capture generator (staged movegen) stays a future extension | See 3.3, 3.8 | `docs/adr/0005-quiescence-pseudo-legal-movegen.md` |
+| 2026-08-14 | Move-ordering bands (TT move > captures/promotions by MVV-LVA > killers > history > quiets) are kept numerically disjoint, so each band is tunable without collisions; killers are per-search, the history table is per-game and caller-owned like the TT | See 3.8 | — (settled here, no separate ADR needed) |
 | 2026-08-13 | No benchmark workflow: deterministic node counts are a CI test, wall-clock timing is local and manual — **supersedes the 2026-07-26 trigger decision, which is now moot** | See 2.3, 3.11 | `docs/adr/0004-node-counts-in-ci-timing-local.md` |
 | 2026-08-11 | `go` runs on its own thread (async search); a second `go` arriving while one is in flight is rejected, not queued | See 3.8, 3.9, 3.10 | `docs/adr/0003-async-search-stop.md` |
 | 2026-07-26 | Defer magic bitboards past Milestone 1; sliding-piece attacks generated via loop/bit-shift ray walk over live occupancy for now | See 3.3 | — (settled here, no separate ADR needed) |

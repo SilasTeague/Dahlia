@@ -7,6 +7,7 @@
 #include "eval/evaluate.h"
 #include "movegen/movegen.h"
 #include "search/clock.h"
+#include "search/ordering.h"
 
 namespace search {
 
@@ -37,7 +38,15 @@ struct SearchState {
 	PositionHistory history;
 	Move root_best_move{NULL_SQUARE, NULL_SQUARE};
 
-	explicit SearchState(std::atomic<bool>& stop) : stop_requested(stop) {}
+	// Killers are per-search, not per-game: they are claims about the shape of
+	// *this* tree, and the position has moved on by the next `go`. The history
+	// table is the opposite -- it belongs to the caller and survives until
+	// `ucinewgame` -- which is why it isn't here.
+	KillerEntry killers[kMaxPly];
+	HistoryTable& move_history;
+
+	SearchState(std::atomic<bool>& stop, HistoryTable& history_table)
+		: stop_requested(stop), move_history(history_table) {}
 };
 
 bool time_up(const SearchState& state) {
@@ -58,7 +67,115 @@ int16_t score_from_tt(int16_t score, int ply) {
 	return score;
 }
 
-bool same_move(Move a, Move b) { return a.from == b.from && a.to == b.to && a.promotion == b.promotion; }
+// Anything less than this much material swing can't lift a hopeless node to
+// alpha, so delta pruning doesn't bother searching the capture that would
+// produce it. Two pawns: loose enough that no ordinary tactic is pruned, tight
+// enough to cut the long tails of pointless captures in lost positions.
+constexpr int16_t kDeltaMargin = 200;
+
+// Quiescence search (REFERENCE.md 3.8 responsibility 3): at the horizon,
+// keep searching until the position is quiet.
+//
+// The problem it fixes: a fixed-depth search evaluates whatever position it
+// lands on, so QxP at the last ply scores as "won a pawn" even when the
+// obvious recapture is waiting one ply deeper. That is the horizon effect, and
+// on a material-only evaluation it is the dominant source of blunders --
+// the engine is systematically fooled by every capture sequence that resolves
+// just past the leaf.
+//
+// The fix is to stop only at positions where no capture is pending, by
+// searching captures (and promotions) and nothing else.
+//
+// Termination: every move searched here either removes a piece from the board
+// or promotes a pawn. Both are strictly monotone and bounded -- 30 capturable
+// pieces and 16 pawns -- so no line can run past ~46 plies even in principle,
+// and the kMaxPly guard bounds it regardless. There is no depth counter
+// because there does not need to be one; this is the property the termination
+// unit tests pin.
+//
+// Deliberately not done here: check evasions (a node in check gets the same
+// stand-pat treatment as any other, which is unsound in the strict sense but
+// standard for a first implementation), mate detection at the horizon, and TT
+// probes. All three are separately measurable changes. Mate detection in
+// particular would need the full legal move list, which is exactly the cost
+// the pseudo-legal path below exists to avoid -- and negamax still detects
+// every mate at depth 1 or deeper, so only a mate appearing precisely at a
+// quiescence leaf is missed.
+int16_t quiescence(Position& pos, int16_t alpha, int16_t beta, int ply, SearchState& state) {
+	state.nodes++;
+
+	if ((state.nodes & 0x7FF) == 0 && time_up(state)) state.stop_requested.store(true, std::memory_order_relaxed);
+	if (state.stop_requested.load(std::memory_order_relaxed)) return eval::evaluate(pos);
+
+	// Stand pat: the side to move is never *obliged* to capture, so the static
+	// score of the position as it stands is a lower bound on what this node is
+	// worth. Without this the search would be forced to play out every capture
+	// available, including the ones that just lose material.
+	int16_t stand_pat = eval::evaluate(pos);
+	if (ply >= kMaxPly) return stand_pat;
+	if (stand_pat >= beta) return stand_pat;
+	if (stand_pat > alpha) alpha = stand_pat;
+
+	// Pseudo-legal, not legal. generate_legal_moves() proves legality by
+	// make/unmaking every pseudo-legal move, and quiescence throws away roughly
+	// nine moves in ten -- so a legal move list here spends most of its cost on
+	// quiet moves that are never searched. Measured on the Kiwipete benchmark,
+	// that was the difference between 2.5M and 9M nodes/sec.
+	//
+	// The legality check doesn't disappear; it moves into the loop, where the
+	// make_move needed for the recursion doubles as the proof.
+	MoveList moves;
+	generate_pseudo_legal_moves(moves, pos);
+
+	MoveScores scores;
+	// No TT move and no killers: this node isn't stored in the table, and
+	// killers are quiet moves, which are all filtered out below anyway.
+	score_moves(moves, pos, Move{NULL_SQUARE, NULL_SQUARE}, KillerEntry{}, state.move_history, scores);
+
+	const Color us = pos.side_to_move;
+	int16_t best = stand_pat;
+	for (int i = 0; i < moves.count; i++) {
+		select_next_move(moves, scores, i);
+		Move m = moves.moves[i];
+
+		// Every capture and promotion outranks every quiet move (search/
+		// ordering.h keeps the bands disjoint, and test_ordering.cpp pins it),
+		// so the first quiet move to surface means there are no captures left
+		// and the rest of the list can be abandoned unscanned.
+		bool is_promotion = m.promotion != NO_PROMOTION;
+		if (!is_promotion && !is_capture(pos, m)) break;
+
+		// Delta pruning: even winning the captured piece outright, plus a
+		// margin for the positional value this evaluation can't see, wouldn't
+		// reach alpha -- so the capture cannot change this node's score.
+		// Promotions are exempt: their gain isn't the captured piece.
+		if (!is_promotion) {
+			Piece victim = pos.board[m.to] != NULL_PIECE ? pos.board[m.to] : PAWN;
+			if (stand_pat + eval::piece_value(victim) + kDeltaMargin <= alpha) continue;
+		}
+
+		StateInfo undo;
+		make_move(pos, m, undo);
+		// The move was only pseudo-legal, so it may have left our own king
+		// attacked. Checking after the fact costs one attack query; proving it
+		// beforehand would have cost a second make/unmake.
+		if (is_in_check(pos, us)) {
+			unmake_move(pos, m, undo);
+			continue;
+		}
+		int16_t score = static_cast<int16_t>(
+			-quiescence(pos, static_cast<int16_t>(-beta), static_cast<int16_t>(-alpha), ply + 1, state));
+		unmake_move(pos, m, undo);
+
+		if (score > best) best = score;
+		if (best > alpha) alpha = best;
+		if (alpha >= beta) break;
+
+		if (state.stop_requested.load(std::memory_order_relaxed)) break;
+	}
+
+	return best;
+}
 
 int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, SearchState& state,
                 TranspositionTable& tt) {
@@ -87,7 +204,9 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 		}
 	}
 
-	if (depth == 0) return eval::evaluate(pos);
+	// The leaf is where quiescence takes over: resolve the pending captures
+	// rather than scoring a position that is mid-exchange.
+	if (depth == 0) return quiescence(pos, alpha, beta, ply, state);
 
 	MoveList moves;
 	generate_legal_moves(moves, pos);
@@ -97,15 +216,12 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 		return 0;
 	}
 
-	// TT move first: cheap, high-value ordering ahead of Milestone 4's MVV-LVA/killers/history.
-	if (tt_move.from != NULL_SQUARE) {
-		for (int i = 0; i < moves.count; i++) {
-			if (same_move(moves.moves[i], tt_move)) {
-				std::swap(moves.moves[0], moves.moves[i]);
-				break;
-			}
-		}
-	}
+	// TT move first, then captures by MVV-LVA (search/ordering.h). Scored once
+	// here; the loop below pulls them out one at a time in descending order, so
+	// a node that cuts off on move 1 never ranks the rest.
+	MoveScores scores;
+	const KillerEntry& killers = state.killers[ply < kMaxPly ? ply : kMaxPly - 1];
+	score_moves(moves, pos, tt_move, killers, state.move_history, scores);
 
 	// Fail-soft: `best` tracks the true best score rather than clamping to [alpha, beta].
 	int16_t best = static_cast<int16_t>(-kInfiniteScore);
@@ -115,6 +231,8 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 	// once per move.
 	state.history.push(pos.zobrist_key);
 	for (int i = 0; i < moves.count; i++) {
+		select_next_move(moves, scores, i);
+
 		StateInfo undo;
 		make_move(pos, moves.moves[i], undo);
 		int16_t score = static_cast<int16_t>(
@@ -127,7 +245,18 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 			if (ply == 0) state.root_best_move = moves.moves[i];
 		}
 		if (best > alpha) alpha = best;
-		if (alpha >= beta) break;
+		if (alpha >= beta) {
+			// A quiet move good enough to cut off here is worth trying early at
+			// sibling nodes (killers) and, more weakly, anywhere in the search
+			// (history). Captures are excluded from both: MVV-LVA already ranks
+			// them above every quiet, so recording one would only take up a
+			// killer slot that a quiet move could use.
+			if (!is_capture(pos, moves.moves[i]) && moves.moves[i].promotion == NO_PROMOTION) {
+				state.killers[ply < kMaxPly ? ply : kMaxPly - 1].store(moves.moves[i]);
+				state.move_history.update(pos.side_to_move, moves.moves[i], depth);
+			}
+			break;
+		}
 
 		if (state.stop_requested.load(std::memory_order_relaxed)) break;
 	}
@@ -146,10 +275,10 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 }  // namespace
 
 SearchResult think(Position& pos, const SearchLimits& limits, TranspositionTable& tt,
-                    std::atomic<bool>& stop_requested, const InfoCallback& on_info,
-                    const PositionHistory& history) {
+                    HistoryTable& move_history, std::atomic<bool>& stop_requested,
+                    const InfoCallback& on_info, const PositionHistory& history) {
 	tt.new_search();
-	SearchState state(stop_requested);
+	SearchState state(stop_requested, move_history);
 	state.history = history;  // the search pushes/pops its own moves on top of the played game
 	auto start = std::chrono::steady_clock::now();
 	state.deadline = start + std::chrono::milliseconds(time_budget_ms(limits, pos.side_to_move));

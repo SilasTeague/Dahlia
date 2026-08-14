@@ -29,6 +29,7 @@ add_library(dahlia_core
 	src/position/position.cpp
 	src/position/zobrist.cpp
 	src/search/clock.cpp
+	src/search/ordering.cpp
 	src/search/search.cpp
 	src/search/tt.cpp
 	src/uci/uci.cpp

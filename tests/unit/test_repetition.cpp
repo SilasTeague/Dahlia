@@ -120,8 +120,9 @@ TEST_CASE("repetition: search takes a perpetual check over losing material", "[r
 	search::SearchLimits limits;
 	limits.depth = 6;
 	search::TranspositionTable tt(16);
+	search::HistoryTable move_history;
 	std::atomic<bool> stop{false};
-	search::SearchResult result = search::think(pos, limits, tt, stop);
+	search::SearchResult result = search::think(pos, limits, tt, move_history, stop);
 
 	CHECK(result.score == 0);
 	CHECK(same_move(result.best_move, Move{d1, h5}));
@@ -142,8 +143,9 @@ TEST_CASE("repetition: search claims a threefold completed by the played game", 
 	search::SearchLimits limits;
 	limits.depth = 2;
 	search::TranspositionTable tt(16);
+	search::HistoryTable move_history;
 	std::atomic<bool> stop{false};
-	search::SearchResult result = search::think(pos, limits, tt, stop, nullptr, history);
+	search::SearchResult result = search::think(pos, limits, tt, move_history, stop, nullptr, history);
 
 	CHECK(result.score == 0);
 	CHECK(same_move(result.best_move, Move{g1, h2}));
@@ -151,6 +153,6 @@ TEST_CASE("repetition: search claims a threefold completed by the played game", 
 	// Same position, same depth, no history: White is simply a queen down.
 	Position fresh = parse_fen(kShuffleFen);
 	tt.clear();
-	search::SearchResult no_history = search::think(fresh, limits, tt, stop);
+	search::SearchResult no_history = search::think(fresh, limits, tt, move_history, stop);
 	CHECK(no_history.score < -500);
 }
