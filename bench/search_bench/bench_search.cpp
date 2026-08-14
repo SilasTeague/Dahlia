@@ -24,20 +24,56 @@ struct AttackTableInit {
 // counter below, which is the metric REFERENCE.md 3.11 actually cares about.
 constexpr int kFixedDepth = 5;
 
+// 16 MB, matching the engine's default and the node counts pinned in
+// tests/unit/test_search_nodes.cpp -- node count varies with table size, so
+// this is part of the specification of the numbers below, not a free choice.
+constexpr size_t kHashMb = 16;
+
 void run_fixed_depth_search(benchmark::State& state, const char* fen) {
+	// Parsed and allocated once, outside the loop. Zeroing a 16 MB table costs
+	// more than the endgame position costs to search, so doing it inside the
+	// timed region made that benchmark mostly a memset measurement.
+	const Position start = parse_fen(fen);
+	search::TranspositionTable tt(kHashMb);
+	std::atomic<bool> stop{false};
+
+	search::SearchLimits limits;
+	limits.depth = kFixedDepth;
+
+	uint64_t nodes = 0;
+	int depth_reached = 0;
+
 	for (auto _ : state) {
-		Position pos = parse_fen(fen);
-		search::SearchLimits limits;
-		limits.depth = kFixedDepth;
-		search::TranspositionTable tt(16);
-		std::atomic<bool> stop{false};
+		state.PauseTiming();
+		// Cleared every iteration so each search starts cold. A warm table would
+		// let iteration 2 onward search a smaller tree, and the node count would
+		// stop being the deterministic figure the unit test pins.
+		tt.clear();
+		Position pos = start;
+		stop.store(false, std::memory_order_relaxed);
+		state.ResumeTiming();
+
 		search::SearchResult result = search::think(pos, limits, tt, stop);
 		benchmark::DoNotOptimize(result);
 
-		state.counters["nodes"] = static_cast<double>(result.nodes);
-		state.counters["nps"] = benchmark::Counter(static_cast<double>(result.nodes), benchmark::Counter::kIsRate);
-		state.counters["depth_reached"] = static_cast<double>(result.depth_reached);
+		nodes = result.nodes;
+		depth_reached = result.depth_reached;
 	}
+
+	state.counters["nodes"] = static_cast<double>(nodes);
+	state.counters["depth_reached"] = static_cast<double>(depth_reached);
+
+	// kIsIterationInvariantRate, not kIsRate. The search is deterministic, so
+	// every iteration visits the same `nodes`; this flag tells Google Benchmark
+	// to multiply by the iteration count before dividing by elapsed time, which
+	// is the actual nodes/second.
+	//
+	// kIsRate alone divided one iteration's node count by the time taken by all
+	// of them, understating nps by the iteration count -- and since that count
+	// varies with how slow the position is (269 iterations for the opening vs.
+	// 2080 for the endgame), it made three runs of one engine look 200x apart.
+	state.counters["nps"] = benchmark::Counter(
+		static_cast<double>(nodes), benchmark::Counter::kIsIterationInvariantRate);
 }
 
 }  // namespace

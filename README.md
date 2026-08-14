@@ -134,8 +134,8 @@ ctest --preset debug --output-on-failure
 | `debug` | `Debug` | day-to-day iteration; runs the full test suite |
 | `debug-asan` | `Debug` + ASan/UBSan | memory and UB checking |
 | `debug-tsan` | `Debug` + TSan | data races across the search/reader thread boundary |
-| `release` | `RelWithDebInfo -O3` | portable release; what CI benchmarks and what ships |
-| `release-native` | `RelWithDebInfo -O3 -march=native` | local benchmarking only, never shipped |
+| `release` | `RelWithDebInfo` | portable release; what CI benchmarks and what ships |
+| `release-native` | `RelWithDebInfo -march=native` | local benchmarking only, never shipped |
 
 `release` stays deliberately portable — `-march=native` would make benchmark history
 incomparable across machines and would produce a binary that crashes on the deployment host.
@@ -239,7 +239,7 @@ time budget; run them explicitly with:
 
 ### Unit and regression tests
 
-34 Catch2 test cases across seven files:
+36 Catch2 test cases across eight files:
 
 - **FEN** — parse, serialize, and round-trip, including partial castling rights and en passant.
 - **make/unmake** — a round-trip property test asserting the position *and* Zobrist key are
@@ -278,21 +278,72 @@ Two independent layers exist, because they catch different failures:
   position set — the only thing that catches a function getting faster in isolation while the
   engine gets slower from cache pressure introduced elsewhere.
 
-Every run is committed as a schema'd JSON file under
-[`bench/results/history/`](bench/results/history), named `<date>-<short-hash>.json`, whether or
-not it becomes an approved baseline. The point is an unedited, plottable record of the engine's
-whole lifetime, not a single current number.
+Every run is recorded as a schema'd JSON file under
+[`bench/results/history/`](bench/results/history), named `<date>-<short-hash>.json`, and
+committed alongside the change it measures. The point is an unedited, plottable record of the
+engine's whole lifetime, not a single current number.
 
 ```bash
-scripts/run_benchmarks.sh      # builds Release, runs both suites, writes a history file
+scripts/run_benchmarks.sh      # build, run both suites, record a history file, print the deltas
 ```
+
+One command does the whole loop, so the workflow is: make a change, run the script, read the
+numbers, commit the result file with the change. This is its real output for the commit that
+introduced the transposition table:
+
+```
+### 2026-07-31 `acf4aac`  →  2026-08-03 `5dab191`
+
+| Benchmark              | Nodes   | Δ      | Time      | Δ      |      |
+|------------------------|---------|--------|-----------|--------|------|
+| `BM_Search_Opening`    |  34,195 | -11.2% | 2.631 ms  |  +0.5% | ✅   |
+| `BM_Search_Middlegame` | 145,195 | -71.3% | 15.26 ms  | -74.8% | ✅   |
+| `BM_Search_Endgame`    |     820 | -16.7% | 0.3449 ms | +167.9%| ✅ ⚠️ |
+```
+
+The endgame row is why both columns are shown: fewer nodes, more wall time. To see the whole arc
+rather than the last step:
+
+```bash
+scripts/compare_bench_results.py --history
+scripts/compare_bench_results.py --history --benchmark Middlegame
+```
+
+**Timing deliberately isn't in CI.** Wall-clock numbers are only comparable within one machine,
+and a GitHub runner label pins an image, not a CPU — so automating them would buy an unreliable
+signal that trains you to ignore it. Instead the suite runs on one machine, records the CPU,
+compiler, flags, and repetition count in every file, and warns if any of those move between
+runs. Each benchmark runs multiple repetitions and the **median** is what gets recorded.
+
+What *is* automated is the half that can be: see
+[node counts as a test](#node-counts-are-a-test-not-a-benchmark) below.
 
 **Metric of record: nodes to reach depth N**, not wall time. Node count is what isolates a
 search-quality improvement from the speed of whatever machine happened to run it.
 
+### Node counts are a test, not a benchmark
+
+A fixed-depth search with no time limit visits an *identical* number of nodes on any machine,
+compiler, or optimization level — verified by reproducing 34,195 / 145,195 / 820 across Debug
+and release builds and separate runs days apart. That makes node count an assertion rather than
+a measurement, so it lives in the test suite
+([`test_search_nodes.cpp`](tests/unit/test_search_nodes.cpp)) with the expected values in a
+checked-in table, running on every push with no tolerance band and no statistics.
+
+An intentional search improvement *fails* that test, and the fix is to update the table in the
+same PR — so the diff on those values becomes the regression report, showing exactly what the
+change did to the tree, reviewable in place. It's the same pattern as the perft reference
+values, for the same reason ([ADR 0004](docs/adr/0004-node-counts-in-ci-timing-local.md)).
+
+Those counts are specified at a fixed 16 MB hash: node count legitimately falls as the
+transposition table grows (146,584 nodes at 1 MB down to 145,076 at 256 MB, flattening as
+replacement stops thrashing), so the hash size is part of the specification. What the test
+asserts across hash sizes instead is the **score and best move** — which is also the first
+thing that would break if the TT ever returned an entry belonging to a different position.
+
 ### The transposition table (Milestone 4)
 
-Fixed depth 5, same machine (Apple Silicon), same build (`RelWithDebInfo -O3`), before
+Fixed depth 5, same machine (Apple Silicon), same build (`RelWithDebInfo`, `-O2 -g`), before
 ([`acf4aac`](bench/results/history/2026-07-31-acf4aac.json)) and after
 ([`5dab191`](bench/results/history/2026-08-03-5dab191.json)):
 
@@ -307,10 +358,13 @@ cutting the tree by 71% cut wall time by 75%. The opening position transposes fa
 5, so it gains much less — exactly the shape you'd expect, which is itself a sanity check on the
 result.
 
-The endgame position got *slower* in wall time while searching fewer nodes. That is not a
-regression in search: an 820-node search is dominated by allocating and zeroing the 16 MB table,
-which the benchmark does once per iteration. It's recorded here rather than quietly dropped,
-because a benchmark suite you only cite when it agrees with you isn't a benchmark suite.
+The endgame position got *slower* in wall time while searching fewer nodes. That was never a
+regression in search — it was the benchmark measuring the wrong thing: an 820-node search was
+dominated by allocating and zeroing the 16 MB table, which the harness then did once per
+iteration inside the timed region. That's since been
+[fixed](#a-note-on-the-numbers-before-2026-08-14), which drops the endgame's measured time from
+0.345 ms to 0.103 ms. The anomaly is left in the table rather than quietly dropped, because a
+benchmark suite you only cite when it agrees with you isn't a benchmark suite.
 
 ### Movegen baseline
 
@@ -328,9 +382,25 @@ No movegen optimization has been attempted yet, so these deltas are run-to-run d
 identical code — mostly inside the ±5% band the framework treats as noise. They are listed to
 establish the baseline, not to claim a win.
 
-> **Note on the `nodes_per_second` field** in the history JSON: it comes from a Google Benchmark
-> rate counter and is not directly comparable to a UCI `nps` figure. Node counts and wall times
-> are the trustworthy fields, and node count is the one decisions are made on.
+### A note on the numbers before 2026-08-14
+
+The search benchmark had two measurement bugs, fixed on 2026-08-14. They affected the reported
+figures, never the engine:
+
+- **`nodes_per_second` was wrong by the iteration count.** The Google Benchmark rate counter was
+  fed a single search's node count but divides by the *whole* benchmark's elapsed time, so it
+  reported "one search's nodes ÷ ~0.7 s". Because the iteration count varies with how slow the
+  position is (269 for the opening, 2,080 for the endgame), three runs of one engine appeared
+  200× apart. Fixed by switching to `kIsIterationInvariantRate`, which multiplies by the
+  iteration count before dividing by time.
+- **Timing included setup.** FEN parsing and allocating + zeroing a 16 MB transposition table sat
+  inside the timed loop. For an 820-node endgame search that setup dominated the measurement.
+  The table is now allocated once outside the loop and cleared under `PauseTiming`.
+
+Node counts were never affected, and `scripts/compare_bench_results.py` derives nps from nodes
+and time rather than reading the recorded field — so the whole history reads correctly without
+any file being edited. The pre-fix records are kept as-is; a benchmark history you retouch when
+it embarrasses you is not a benchmark history.
 
 ---
 
@@ -376,7 +446,7 @@ Contested decisions are recorded rather than re-litigated. Full ADRs live in
 | [Magic bitboards deferred past Milestone 1](REFERENCE.md) | Correctness → Measurement → Optimization: the loop-based baseline is what makes the later swap a citable win instead of a vibes-based one |
 | [CMake as the build system of record](docs/adr/0002-cmake-migration.md) | Library/executable/test/bench target separation, sanitizers, `FetchContent`; the Makefile survives only as a thin wrapper with no logic of its own |
 | [Async search; concurrent `go` rejected, not queued](docs/adr/0003-async-search-stop.md) | Queueing means answering "what does a *third* `go` do", for a case no compliant GUI produces |
-| [Benchmarks triggered by changed paths, not a commit tag](REFERENCE.md) | A forgotten tag is a silent hole in the regression history; path filtering fires deterministically |
+| [Node counts in CI, timing local and manual](docs/adr/0004-node-counts-in-ci-timing-local.md) | Deterministic and noisy metrics have opposite needs; one mechanism for both forced timing's weaknesses onto node counts, which need no tolerance band at all |
 | [`Move` stays a plain struct](REFERENCE.md) | Bit-packing is deferred until a benchmark shows move-list/TT cache pressure actually matters |
 | [Feature branch + PR for every change](REFERENCE.md) | The PR description is where design rationale and before/after numbers live |
 
@@ -396,6 +466,9 @@ Pushing a `v*` tag runs [`release.yml`](.github/workflows/release.yml), which:
    `bestmove 0000`. A binary that starts and then finds no move would sail past a bare `uciok`
    check.
 4. Publishes the binaries with a `SHA256SUMS` manifest.
+
+`release.yml` is the only tag-triggered workflow; performance is measured locally before a tag
+rather than on a CI runner ([see benchmarks](#benchmarks)).
 
 Static linking is load-bearing, not incidental: deployment hosts span glibc 2.31 through 2.36,
 and a dynamically linked build simply refuses to start on anything older than the build image.
@@ -421,9 +494,18 @@ document:
   single largest available reduction in tree size.
 - **No strength estimate.** No SPRT match has been run, so Dahlia has no Elo figure and this
   README deliberately doesn't invent one. SPRT tooling lands with Milestone 4's completion.
-- **`benchmark.yml` is an unimplemented placeholder.** Benchmarks are currently run locally via
-  `scripts/run_benchmarks.sh` and committed by hand; the path-triggered CI workflow is designed
-  ([REFERENCE.md §3.11](REFERENCE.md)) but not yet written.
+- **Timing regressions depend on remembering to run the script.** Node-count regressions are
+  caught automatically on every push, but wall-clock ones surface only when
+  `scripts/run_benchmarks.sh` is run. Accepted deliberately: an unreliable automated timing
+  signal is worse than a reliable manual one
+  ([ADR 0004](docs/adr/0004-node-counts-in-ci-timing-local.md)).
+- **Nothing is actually built at `-O3`, including the shipped binary.** The `release` preset and
+  `docker/Dockerfile.release` both pass `-O3` via `CMAKE_CXX_FLAGS`, which CMake places *before*
+  `CMAKE_CXX_FLAGS_RELWITHDEBINFO` (`-O2 -g -DNDEBUG`) on the command line — and the last `-O`
+  flag wins, so every build is effectively `-O2`. The intent is unrealized project-wide rather
+  than inconsistent between builds; benchmarks and the release binary do at least agree with
+  each other. Fixing it will shift every recorded time at once, so it's a deliberate change to
+  make at a tag boundary, not a silent correction.
 - **`docs/architecture.md` doesn't exist yet** — it's a Milestone 7 deliverable. Until then,
   [`REFERENCE.md`](REFERENCE.md) is the architecture document.
 - **`info` lines omit `seldepth`, `pv`, and `hashfull`**, all of which a GUI will display if
@@ -448,16 +530,16 @@ Dahlia/
 │   ├── uci/                # protocol loop, search thread, output serialization
 │   └── main.cpp
 ├── tests/
-│   ├── unit/               # Catch2: FEN, make/unmake, eval, search, TT, UCI
+│   ├── unit/               # Catch2: FEN, make/unmake, eval, search, node counts, TT, UCI
 │   └── perft/              # perft + per-piece divide against CPW reference values
 ├── bench/
 │   ├── microbench/         # Google Benchmark: attacks, move generation
 │   ├── search_bench/       # fixed-depth whole-engine search on a fixed position set
 │   └── results/history/    # committed JSON, one file per benchmark run
 ├── docs/adr/               # architecture decision records
-├── scripts/                # run_benchmarks.sh, build-release.sh, format_bench_result.py
+├── scripts/                # run_benchmarks.sh, compare_bench_results.py, build-release.sh
 ├── docker/                 # Dockerfile.release — static build + shipped-artifact smoke test
-└── .github/workflows/      # ci.yml, release.yml, benchmark.yml
+└── .github/workflows/      # ci.yml, release.yml
 ```
 
 If you're reading the codebase for the first time, the path with the most signal is:
