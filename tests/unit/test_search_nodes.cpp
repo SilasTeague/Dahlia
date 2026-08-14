@@ -42,11 +42,19 @@ struct NodeBudget {
 
 // Same positions as bench/search_bench/bench_search.cpp, so a node count seen
 // here and one seen in the benchmark history refer to the same search.
+//
+// These counts include quiescence nodes, which is why two of the three went
+// *up* at Milestone 4 even though move ordering cut the main tree sharply:
+// depth 5 now means five plies plus however many captures are pending at each
+// leaf. The comparable pre-quiescence numbers were 34,195 / 145,195 / 820. The
+// figure that shows the ordering work is nodes-to-depth-7, which fell from
+// 828,549 to 370,254 (opening) and 4,866,267 to 2,431,525 (middlegame) across
+// the same milestone -- see bench/results/history/.
 constexpr NodeBudget kExpected[] = {
-	{"opening", "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 5, 34195},
+	{"opening", "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 5, 23023},
 	{"middlegame (Kiwipete)",
-	 "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 5, 145195},
-	{"endgame (K+P)", "8/8/4k3/8/8/4K3/4P3/8 w - - 0 1", 5, 820},
+	 "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 5, 161277},
+	{"endgame (K+P)", "8/8/4k3/8/8/4K3/4P3/8 w - - 0 1", 5, 1411},
 };
 
 uint64_t search_nodes(const char* fen, int depth) {
@@ -54,8 +62,11 @@ uint64_t search_nodes(const char* fen, int depth) {
 	search::SearchLimits limits;
 	limits.depth = depth;
 	search::TranspositionTable tt(16);
+	// Fresh per search, like the table above: a history table carried between
+	// positions would make these counts depend on what ran before them.
+	search::HistoryTable move_history;
 	std::atomic<bool> stop{false};
-	return search::think(pos, limits, tt, stop).nodes;
+	return search::think(pos, limits, tt, move_history, stop).nodes;
 }
 
 }  // namespace
@@ -74,8 +85,9 @@ TEST_CASE("search: fixed-depth node counts match the recorded baseline", "[searc
 //
 // Node count deliberately isn't asserted here -- it legitimately falls as the
 // table grows, because a bigger table evicts fewer entries and so produces more
-// cutoffs (measured: 146,584 nodes at 1 MB down to 145,076 at 256 MB, flattening
-// as replacement stops thrashing). That is why kExpected above pins a hash size:
+// cutoffs (measured at Milestone 4: 164,722 nodes at 1 MB down to 161,277 at
+// 16 MB, flat from there to 256 MB once replacement stops thrashing). That is
+// why kExpected above pins a hash size:
 // 16 MB is part of the specification of those numbers, not an incidental choice.
 //
 // The score is the invariant, and it is the one that catches the failure mode
@@ -88,8 +100,9 @@ TEST_CASE("search: result is independent of transposition table size", "[search]
 		search::SearchLimits limits;
 		limits.depth = kExpected[1].depth;
 		search::TranspositionTable tt(megabytes);
+		search::HistoryTable move_history;
 		std::atomic<bool> stop{false};
-		return search::think(pos, limits, tt, stop);
+		return search::think(pos, limits, tt, move_history, stop);
 	};
 
 	search::SearchResult reference = search_with_hash(16);

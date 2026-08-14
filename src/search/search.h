@@ -9,11 +9,12 @@
 #include "core/types.h"
 #include "position/history.h"
 #include "position/position.h"
+#include "search/ordering.h"
 #include "search/tt.h"
 
-// Negamax alpha-beta search with iterative deepening and a transposition
-// table (REFERENCE.md 3.7/3.8, Milestone 4). Move ordering beyond the TT
-// move (MVV-LVA, killers, history) and quiescence are still deferred.
+// Negamax alpha-beta search with iterative deepening, a transposition table,
+// staged move ordering, and quiescence at the leaves (REFERENCE.md 3.7/3.8,
+// Milestone 4).
 namespace search {
 
 // Milliseconds held back from every time-limited search to cover the gap
@@ -67,13 +68,20 @@ using InfoCallback = std::function<void(const std::string& line)>;
 // depth; think() never writes to any stream itself, so the caller decides
 // how to serialize output across threads.
 //
+// `move_history` is the butterfly history table used for move ordering. Like
+// the transposition table it is caller-owned rather than rebuilt per search,
+// because its value comes from accumulating across the moves of one game; the
+// caller is responsible for clearing it on `ucinewgame`. Unlike the TT it is
+// written to on every beta cutoff, so it is passed by mutable reference.
+//
 // `history` is the line of positions played before `pos`, which the search
 // needs to score threefold repetitions correctly; the default -- no history
 // -- means "the game starts at `pos`", which only costs the search the
 // repetitions it can't see anyway. think() copies it and leaves the caller's
 // copy untouched.
 SearchResult think(Position& pos, const SearchLimits& limits, TranspositionTable& tt,
-                    std::atomic<bool>& stop_requested, const InfoCallback& on_info = nullptr,
+                    HistoryTable& move_history, std::atomic<bool>& stop_requested,
+                    const InfoCallback& on_info = nullptr,
                     const PositionHistory& history = PositionHistory{});
 
 }  // namespace search

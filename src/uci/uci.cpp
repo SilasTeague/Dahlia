@@ -180,6 +180,10 @@ class Engine {
 		pos_ = parse_fen(kStartFen);
 		history_.clear();
 		tt_.clear();
+		// Move-ordering state carried into an unrelated game is stale bias, not
+		// a head start: the history table's whole claim is "these moves keep
+		// working *here*" (REFERENCE.md 3.8).
+		move_history_.clear();
 	}
 
 	void handle_setoption(std::istringstream& iss) { ::handle_setoption(iss, tt_, move_overhead_ms_); }
@@ -202,7 +206,8 @@ class Engine {
 			[this](Position search_pos, PositionHistory search_history, search::SearchLimits search_limits) {
 				auto on_info = [this](const std::string& line) { write_line(line); };
 				search::SearchResult result =
-					search::think(search_pos, search_limits, tt_, stop_requested_, on_info, search_history);
+					search::think(search_pos, search_limits, tt_, move_history_, stop_requested_, on_info,
+					              search_history);
 
 				write_line(result.best_move.from == NULL_SQUARE ? "bestmove 0000"
 				                                                 : "bestmove " + move_to_uci(result.best_move));
@@ -235,6 +240,10 @@ class Engine {
 	Position pos_;
 	PositionHistory history_;
 	search::TranspositionTable tt_{kDefaultHashMb};
+	// Like tt_, owned here rather than by the search so it survives across the
+	// moves of a game; touched only by the search thread while a search is
+	// running, and only by handle_ucinewgame() when one isn't.
+	search::HistoryTable move_history_;
 	// Read on the reader thread when launching a search, written only by
 	// setoption -- which UCI guarantees never arrives mid-search -- so it
 	// needs no synchronization; the value is copied into the limits the

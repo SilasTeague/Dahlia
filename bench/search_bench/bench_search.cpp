@@ -35,6 +35,7 @@ void run_fixed_depth_search(benchmark::State& state, const char* fen) {
 	// timed region made that benchmark mostly a memset measurement.
 	const Position start = parse_fen(fen);
 	search::TranspositionTable tt(kHashMb);
+	search::HistoryTable move_history;
 	std::atomic<bool> stop{false};
 
 	search::SearchLimits limits;
@@ -49,11 +50,15 @@ void run_fixed_depth_search(benchmark::State& state, const char* fen) {
 		// let iteration 2 onward search a smaller tree, and the node count would
 		// stop being the deterministic figure the unit test pins.
 		tt.clear();
+		// Same reasoning as the table: a history table left warm from the
+		// previous iteration would order the next search better and quietly
+		// walk the node count down over the run.
+		move_history.clear();
 		Position pos = start;
 		stop.store(false, std::memory_order_relaxed);
 		state.ResumeTiming();
 
-		search::SearchResult result = search::think(pos, limits, tt, stop);
+		search::SearchResult result = search::think(pos, limits, tt, move_history, stop);
 		benchmark::DoNotOptimize(result);
 
 		nodes = result.nodes;

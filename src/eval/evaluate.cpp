@@ -14,6 +14,10 @@ constexpr int16_t kPieceValue[6] = {100, 320, 330, 500, 900, 0};
 
 }  // namespace
 
+int16_t piece_value(Piece piece) {
+	return piece <= KING ? kPieceValue[piece] : 0;
+}
+
 int16_t evaluate(const Position& pos) {
 	int material = 0;
 	for (int piece = PAWN; piece <= QUEEN; piece++) {
