@@ -74,13 +74,20 @@ struct NodeBudget {
 // PVS then took them back down (26,959 / 193,194 / 1,427 / 159,796 before it)
 // without moving a single score or best move below -- which is the whole claim
 // PVS makes, pinned here rather than asserted in a comment.
+//
+// Null-move pruning took another 11-83% (26,183 / 152,499 / 1,330 / 156,240
+// before it), and the endgame's exact 1,330 is the interesting number: it did
+// not move at all, because that position is a king and a pawn and the zugzwang
+// guard switches the heuristic off there entirely. The one position null-move
+// pruning cannot help is the one it would otherwise get wrong -- see
+// test_nullmove.cpp.
 constexpr NodeBudget kExpected[] = {
-	{"opening", "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 5, 26183, 33, "g1f3"},
+	{"opening", "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 5, 21337, 33, "g1f3"},
 	{"middlegame (Kiwipete)",
-	 "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 5, 152499, -27, "e2a6"},
+	 "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 5, 136030, -27, "e2a6"},
 	{"endgame (K+P)", "8/8/4k3/8/8/4K3/4P3/8 w - - 0 1", 5, 1330, 110, "e3e4"},
 	{"tactical (WAC.019)",
-	 "r1bqrbn1/pp3ppp/2np4/2p5/2B1P3/2N2N2/PPP2PPP/R1BQR1K1 w - - 0 1", 5, 156240, 328, "c4f7"},
+	 "r1bqrbn1/pp3ppp/2np4/2p5/2B1P3/2N2N2/PPP2PPP/R1BQR1K1 w - - 0 1", 5, 25809, 328, "c4f7"},
 };
 
 search::SearchResult search_at_depth(const char* fen, int depth) {

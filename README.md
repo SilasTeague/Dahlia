@@ -5,8 +5,9 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](#license)
 
 A UCI-compatible chess engine written from scratch in modern C++ — bitboard move generation,
-Zobrist-hashed make/unmake, iterative-deepening alpha-beta search with a transposition table,
-and an asynchronous UCI loop that stays responsive mid-search.
+Zobrist-hashed make/unmake, an iterative-deepening principal-variation search with a transposition
+table, tapered evaluation and null-move pruning, and an asynchronous UCI loop that stays
+responsive mid-search.
 
 ### ▶ [Play it at silasteague.com/chess](https://silasteague.com/chess)
 
@@ -86,7 +87,7 @@ util  ←  core  ←  movegen  ←  position  ←  search  ←  uci
 | `movegen/` | attack tables, ray-walk sliding attacks, pseudo-legal + legal generation | knowing about search or eval |
 | `position/` | board state, FEN in/out, make/unmake, Zobrist hashing | scoring or choosing moves |
 | `eval/` | material + tapered piece-square tables (v1) | anything search-dependent |
-| `search/` | negamax alpha-beta, iterative deepening, transposition table, move ordering, quiescence, time budget | I/O of any kind |
+| `search/` | negamax alpha-beta with PVS, iterative deepening, transposition table, move ordering, quiescence, null-move pruning, time budget | I/O of any kind |
 | `uci/` | protocol loop, search thread ownership, output serialization | being depended on by anything |
 
 A few properties worth calling out:
@@ -582,6 +583,71 @@ is that PVS trades a large middlegame gain for a small endgame loss, which is th
 Milestone 4's ordering result and the same reason: a position with few moves and no captures is
 where every ordering-dependent optimization has the least to work with.
 
+### Null-move pruning (Milestone 5)
+
+The idea is almost impudent: hand the opponent a free move, search the result two plies shallower
+than normal, and if the position is *still* winning, don't bother generating the real move list at
+all. Nearly every position obliges, because passing is worse than any legal move — nearly.
+
+| Position | Nodes to depth 5 | Δ | Nodes to depth 7 | Δ | Depth in 5 s |
+|---|---:|---:|---:|---:|---:|
+| Opening | 26,183 → 21,337 | −18.5% | 488,704 → 287,123 | −41.2% | 9 → **11** |
+| Middlegame (Kiwipete) | 152,499 → 136,030 | −10.8% | 2,393,395 → 1,129,624 | −52.8% | 8 → **10** |
+| Endgame (K+P) | 1,330 → 1,330 | **0.0%** | 6,437 → 6,437 | **0.0%** | 23 → **24** |
+| Tactical (WAC.019) | 156,240 → 25,809 | **−83.5%** | 3,821,576 → 300,109 | **−92.1%** | 8 → **11** |
+
+Scores and best moves are unchanged on all four. Two of these rows are worth reading closely:
+
+**The tactical position lost 92% of its tree** because it is winning by roughly three pawns, and
+that is exactly the shape null-move pruning is built for: in a position this far above beta, most
+subtrees can be dismissed without being searched. It is the largest single-change node reduction
+in the project's history.
+
+**The endgame moved by exactly zero nodes, and that is the feature working**, not a bug. It is a
+king and a pawn per side, so the zugzwang guard switches the heuristic off completely. Which is
+the whole point:
+
+> Null-move pruning assumes passing is worse than any real move. In a pawn endgame that
+> assumption is backwards — pawns can't move backwards, and positions where every legal move
+> loses ground are the entire subject of endgame theory.
+
+Rebuilding the engine with the guard removed and nothing else changed, that same K+P position at
+depth 17 scores **+219 instead of +962** and never finds the promotion. That's a 700-centipawn
+misjudgement of a won game, and it's now pinned as a regression test
+([`test_nullmove.cpp`](tests/unit/test_nullmove.cpp)) with the failing number written into the
+comment, so the test says what it's protecting against rather than just asserting a magic
+threshold.
+
+The endgame also gained a ply in fixed time (23 → 24) despite the guard, which looks contradictory
+until you notice where: once a pawn promotes, the side to move *has* a queen, the guard stops
+applying, and the pruning switches itself back on for the rest of the line.
+
+Null moves are never searched two in a row, never while in check (passing there would leave a
+capturable king), and never when beta is already a mate score — near a forced mate, "I'm winning
+even if I do nothing" is a statement about beta, not about the position. One case is knowingly
+unhandled: the pruning runs before the move list is generated, so a *stalemate* is treated as a
+position where the side to move could happily pass. The guard covers the common case, and
+detecting the rest would mean generating the move list, which is the cost the whole heuristic
+exists to avoid.
+
+### Milestone 5 end to end
+
+Three changes — [tapered PSTs](#piece-square-tables-and-tapered-eval-milestone-5),
+[PVS](#principal-variation-search-milestone-5), and null-move pruning — measured against the
+Milestone 4 tag:
+
+| | Opening | Middlegame | Endgame (K+P) | Tactical |
+|---|---:|---:|---:|---:|
+| Nodes to depth 7, M4 | 370,254 | 2,431,525 | 6,349 | 3,523,284 |
+| Nodes to depth 7, M5 | 287,123 | 1,129,624 | 6,437 | 300,109 |
+| Δ | −22.5% | **−53.5%** | +1.4% | **−91.5%** |
+| Depth in 5 s, M4 → M5 | 10 → **11** | 8 → **10** | 27 → **24** | 8 → **11** |
+
+Plus one more Win At Chess position solved (14/18 → 15/18). The endgame column is the honest cost:
+it lost three plies of depth in fixed time across the milestone — two to the evaluation getting
+more expensive, one to PVS — and null-move pruning could only give one back, because the guard
+correctly refuses to help there. Every other position gained one to three plies.
+
 ### Movegen baseline
 
 The loop/bit-shift ray walker, unchanged since Milestone 1 — this is the number a future
@@ -632,7 +698,7 @@ leave `master` in a buildable, UCI-playable state.
 | 2 | **`Position`, make/unmake, Zobrist, minimal UCI** — legal game playable in a real GUI | ✅ Complete |
 | 3 | **Material eval + alpha-beta** — negamax, iterative deepening, time management | ✅ Complete |
 | 4 | **Move ordering, quiescence, TT** | ✅ Complete — TT, MVV-LVA, killers, history, quiescence ([numbers](#move-ordering-and-quiescence-milestone-4)) |
-| 5 | **PVS, piece-square tables / tapered eval, null-move pruning** | 🚧 In progress — [tapered PSTs](#piece-square-tables-and-tapered-eval-milestone-5) and [PVS](#principal-variation-search-milestone-5) landed; null-move pruning next |
+| 5 | **PVS, piece-square tables / tapered eval, null-move pruning** | ✅ Complete — [tapered PSTs](#piece-square-tables-and-tapered-eval-milestone-5), [PVS](#principal-variation-search-milestone-5), [null-move pruning](#null-move-pruning-milestone-5) ([summary](#milestone-5-end-to-end)) |
 | 6 | **Aspiration windows, late move reductions** | ⬜ Not started |
 | 7 | **Polish & portfolio packaging** — architecture diagrams, full option set, strength estimate | 🚧 Partial — this README, the live deployment, and the release pipeline are done |
 | 8+ | **Lazy-SMP search**, opening book, evaluation tuning harness | ⬜ Committed stretch goals |
@@ -715,6 +781,11 @@ document:
 - **The piece-square values are borrowed, not tuned here.** They're PeSTO's published tables. A
   tuner of Dahlia's own is a post-Milestone-7 stretch goal; until it exists, using a tuned set is
   the honest option and inventing numbers would be the dishonest one.
+- **Null-move pruning mishandles stalemate.** It runs before the move list is generated, so a
+  stalemated side is pruned as though it could pass — which is exactly what it would want to do.
+  The zugzwang guard covers the common case (a stalemated side is usually down to a bare king),
+  and catching the rest would mean generating the move list, which is the cost the heuristic
+  exists to avoid.
 - **Quiescence doesn't handle checks.** A node that is *in check* still stands pat as though the
   side to move could decline, and a mate appearing exactly at a quiescence leaf is scored as
   material. Every mate at depth 1 or deeper is still found by the main search; only the
@@ -758,7 +829,7 @@ Dahlia/
 │   ├── movegen/            # attacks, ray-walk sliding attacks, generation
 │   ├── position/           # Position, FEN, make/unmake, Zobrist
 │   ├── eval/               # material + tapered piece-square tables
-│   ├── search/             # negamax + iterative deepening, TT, time budget
+│   ├── search/             # PVS negamax + iterative deepening, TT, pruning, time budget
 │   ├── uci/                # protocol loop, search thread, output serialization
 │   └── main.cpp
 ├── tests/
