@@ -110,6 +110,18 @@ struct SearchTuning {
 	}
 };
 
+// Names any build-time search constant that differs from the shipped default,
+// e.g. "lmr_divisor=1.75", or an empty string for an ordinary build.
+//
+// The UCI `id name` carries this, so a build with experimental constants cannot
+// be mistaken for the real engine in a match log, a GUI, or on the Lichess bot.
+// An A/B result is only worth anything if you can prove afterwards *which two
+// things* played, and the alternative -- trusting that the right binary sat at
+// the right path -- is exactly the kind of unverifiable step that produced the
+// one un-rerunnable measurement in this project's history (see the Milestone 4
+// correction in REFERENCE.md).
+std::string build_tuning_signature();
+
 // Score magnitude reserved for mate detection; a returned score is a "mate
 // in N plies" score once it's within kMaxPly of kMateScore (see
 // is_mate_score in search.cpp). Kept well below int16_t's range so ply

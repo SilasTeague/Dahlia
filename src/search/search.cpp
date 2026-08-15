@@ -57,6 +57,16 @@ struct SearchState {
 		: stop_requested(stop), move_history(history_table) {}
 };
 
+bool same_move(Move a, Move b) {
+	return a.from == b.from && a.to == b.to && a.promotion == b.promotion;
+}
+
+// True if `m` is one of the two quiet moves recorded as causing a beta cutoff
+// at this ply in a sibling subtree. Only read when kLmrExemptKillers is on.
+bool is_killer(const KillerEntry& killers, Move m) {
+	return same_move(killers.first, m) || same_move(killers.second, m);
+}
+
 bool time_up(const SearchState& state) {
 	return std::chrono::steady_clock::now() >= state.deadline;
 }
@@ -197,6 +207,34 @@ constexpr int kAspirationInitialDelta = 25;
 // still moving too much for the previous one to be a usable guess.
 constexpr int kAspirationMinDepth = 4;
 
+// The two LMR constants ADR 0006 records as open, defaulted here to the shipped
+// values and overridable from CMake so that an A/B match compares two binaries
+// rather than two working-tree states. The `#ifndef` guards mean this file still
+// compiles standalone, outside the build system, with the shipped behaviour.
+//
+// Both are open for the same reason: LMR is inexact, so "searches fewer nodes"
+// is not the same claim as "plays better", and the node counts that settled
+// every earlier constant in this engine cannot rank these. Only games can.
+#ifndef DAHLIA_LMR_DIVISOR
+#define DAHLIA_LMR_DIVISOR 2.25
+#endif
+#ifndef DAHLIA_LMR_EXEMPT_KILLERS
+#define DAHLIA_LMR_EXEMPT_KILLERS 0
+#endif
+
+// Divides the product of the two logarithms below. Lower reduces harder: 1.75
+// measured 34-43% fewer nodes at depth 14 than 2.25 with an identical score on
+// the tactics suite, which is precisely the kind of result that looks like a
+// win and isn't necessarily one.
+constexpr double kLmrDivisor = DAHLIA_LMR_DIVISOR;
+
+// Whether a killer move is exempt from reduction. A killer already caused a
+// beta cutoff at this ply in a sibling subtree, which is evidence the ordering
+// has and the "late means unpromising" assumption ignores. Measured at depth
+// 14: -29% nodes on the opening, +14% on Kiwipete, no change to the tactics
+// suite -- a genuine split decision.
+constexpr bool kLmrExemptKillers = DAHLIA_LMR_EXEMPT_KILLERS;
+
 // Reductions start at depth 3: at depth 2 a reduced search runs at depth 0,
 // which is a bare quiescence, and that answers a different question than the
 // search it stands in for -- the same reasoning that sets kNullMoveMinDepth.
@@ -273,7 +311,7 @@ int lmr_reduction(int depth, int move_index) {
 		std::array<std::array<uint8_t, kLmrTableMoves>, kLmrTableDepth> t{};
 		for (size_t d = 1; d < kLmrTableDepth; d++) {
 			for (size_t m = 1; m < kLmrTableMoves; m++) {
-				double r = 0.75 + std::log(static_cast<double>(d)) * std::log(static_cast<double>(m)) / 2.25;
+				double r = 0.75 + std::log(static_cast<double>(d)) * std::log(static_cast<double>(m)) / kLmrDivisor;
 				t[d][m] = static_cast<uint8_t>(std::max(0.0, r));
 			}
 		}
@@ -462,7 +500,9 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 			//    unpromising" ordering claim to lean on in the first place.
 			int reduction = 0;
 			if (state.tuning.late_move_reductions && depth >= kLmrMinDepth && i >= kLmrFullDepthMoves &&
-			    is_quiet && !in_check && !is_in_check(pos, pos.side_to_move)) {
+			    is_quiet && !in_check &&
+			    (!kLmrExemptKillers || !is_killer(killers, moves.moves[i])) &&
+			    !is_in_check(pos, pos.side_to_move)) {
 				reduction = lmr_reduction(depth, i);
 				// Never reduced into quiescence. Depth 0 hands the move to a
 				// capture-only search, which would judge a quiet move by
@@ -622,6 +662,20 @@ int16_t search_root(Position& pos, int depth, int16_t prev_score, SearchState& s
 }
 
 }  // namespace
+
+std::string build_tuning_signature() {
+	std::string signature;
+	if (kLmrDivisor != 2.25) {
+		std::ostringstream value;
+		value << "lmr_divisor=" << kLmrDivisor;
+		signature = value.str();
+	}
+	if (kLmrExemptKillers) {
+		if (!signature.empty()) signature += " ";
+		signature += "lmr_exempt_killers";
+	}
+	return signature;
+}
 
 SearchResult think(Position& pos, const SearchLimits& limits, TranspositionTable& tt,
                     HistoryTable& move_history, std::atomic<bool>& stop_requested,

@@ -9,7 +9,7 @@ Zobrist-hashed make/unmake, an iterative-deepening principal-variation search wi
 table, tapered evaluation, null-move pruning, aspiration windows and late move reductions, and an
 asynchronous UCI loop that stays responsive mid-search.
 
-**Rated 1928 blitz on Lichess** as of 2026-08-15, over 64 games (35 W / 6 D / 23 L). That is a
+**Rated 1977 blitz on Lichess** as of 2026-08-15, over 87 games (35 W / 6 D / 23 L). That is a
 rating still in motion over a small sample rather than a converged one, and it is quoted with its
 date and game count for exactly that reason — see
 [current limitations](#current-limitations).
@@ -942,7 +942,7 @@ document:
   whether the victim is defended, so QxP-into-a-recapture is searched at the same priority as a
   genuinely winning QxP. That costs nodes, never correctness — quiescence still scores the
   exchange correctly once it searches it.
-- **The rating is a first measurement, not a converged one.** 1928 blitz is 64 games. The
+- **The rating is a first measurement, not a converged one.** 1928 blitz is 87 games. The
   confidence interval on a sample that size is wide, Lichess is still moving the number quickly,
   and it was recorded mid-milestone — the Milestone 6 work is part of what will move it next.
   Quote it with its date and game count or not at all.
