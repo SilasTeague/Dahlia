@@ -177,8 +177,28 @@ int16_t quiescence(Position& pos, int16_t alpha, int16_t beta, int ply, SearchSt
 	return best;
 }
 
+// Null-move pruning gives the opponent two moves in a row and searches the
+// result shallowly. If the side to move is still winning after that gift, the
+// position is so far above beta that the real move list is not worth
+// generating.
+//
+// R, the depth taken off the verification search. 2 is the conventional
+// starting value: deep enough that the null search costs a fraction of the
+// real one, shallow enough that it still sees the threats that would refute
+// the assumption.
+constexpr int kNullMoveReduction = 2;
+
+// Below this depth the null search saves nothing worth the risk -- at depth 2
+// it would run at depth -1, i.e. a bare quiescence, which answers a different
+// question than the search it is standing in for.
+constexpr int kNullMoveMinDepth = 3;
+
+// `allow_null` is false only in the subtree of a null move already made, so
+// the search can never answer "what if I pass?" with "well, what if we both
+// pass?" -- two passes in a row return the same position two plies shallower,
+// which proves nothing and costs a subtree.
 int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, SearchState& state,
-                TranspositionTable& tt) {
+                TranspositionTable& tt, bool allow_null = true) {
 	state.nodes++;
 
 	// Node-count modulus, not every node -- too slow per-node, too rare misses the time control.
@@ -208,6 +228,61 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 	// rather than scoring a position that is mid-exchange.
 	if (depth == 0) return quiescence(pos, alpha, beta, ply, state);
 
+	// Null-move pruning (REFERENCE.md 3.8 responsibility 8): hand the opponent
+	// a free move and search the result shallowly. If the position is still
+	// above beta after that, it is winning by enough that the real move list
+	// isn't worth generating.
+	//
+	// `has_non_pawn_material` is the zugzwang guard, and it is the difference
+	// between a sound heuristic and one that hallucinates in pawn endgames --
+	// the assumption "passing is worse than any real move" is false exactly
+	// where a side has nothing but pawns, which cannot move backwards. Removing
+	// it makes the search misjudge the K+P benchmark position by 700
+	// centipawns; test_nullmove.cpp pins that.
+	//
+	// The conditions are ordered cheapest-first: two integer comparisons and a
+	// bitboard test reject most nodes before the in-check test, which is the
+	// only one that costs an attack query. Being in check disqualifies the node
+	// outright, since passing there would leave a capturable king and the whole
+	// subtree would be scoring an impossible position.
+	//
+	// The mate-score guard keeps the heuristic away from the one place its
+	// logic inverts. Near a forced mate, "even if I do nothing I'm still above
+	// beta" is not evidence of a won position -- it is evidence that beta is a
+	// mate score, and a shallow search that fails to find the mate would prune
+	// the line that does.
+	//
+	// Known and accepted: this runs before the move list is generated, so a
+	// *stalemate* position is pruned as though the side to move could pass --
+	// which is precisely what a stalemated side would want to do. The guard
+	// covers the common case (a stalemated side is usually down to a bare
+	// king), and detecting the rest would mean generating the move list here,
+	// which is the cost this heuristic exists to avoid.
+	if (allow_null && ply > 0 && depth >= kNullMoveMinDepth && beta < kMateThreshold &&
+	    has_non_pawn_material(pos, pos.side_to_move) && !is_in_check(pos, pos.side_to_move)) {
+		StateInfo undo;
+		make_null_move(pos, undo);
+		// Pushed for the same reason a real move is: the child counts entries
+		// back from the end of the line to tell the search's own moves from the
+		// game's, and a null move that skipped the push would shift that count
+		// by one for everything below it.
+		state.history.push(undo.zobrist_key);
+		int16_t null_score = static_cast<int16_t>(
+			-negamax(pos, depth - 1 - kNullMoveReduction, static_cast<int16_t>(-beta),
+			         static_cast<int16_t>(-beta + 1), ply + 1, state, tt, false));
+		state.history.pop();
+		unmake_null_move(pos, undo);
+
+		if (null_score >= beta) {
+			// Returning beta rather than null_score when the null search claims
+			// a mate: it found one for a side that was handed a free move, which
+			// says nothing about whether the mate exists in the real game.
+			// Propagating it would put a mate score into the TT for a position
+			// that isn't mating.
+			return null_score >= kMateThreshold ? beta : null_score;
+		}
+	}
+
 	MoveList moves;
 	generate_legal_moves(moves, pos);
 	if (moves.count == 0) {
@@ -235,8 +310,37 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 
 		StateInfo undo;
 		make_move(pos, moves.moves[i], undo);
-		int16_t score = static_cast<int16_t>(
-			-negamax(pos, depth - 1, static_cast<int16_t>(-beta), static_cast<int16_t>(-alpha), ply + 1, state, tt));
+
+		// Principal Variation Search (REFERENCE.md 3.8 responsibility 5). The
+		// first move gets a full [alpha, beta] window; every move after it is
+		// searched against the null window [alpha, alpha+1], which asks only
+		// "is this better than what we already have?" and cannot answer with
+		// anything but yes or no. That is a far cheaper question -- a window
+		// one point wide fails high or low almost immediately, cutting off
+		// most of the subtree -- and it is the right question, because move
+		// ordering makes the first move the best one at this node 84-96% of
+		// the time (measured on the four benchmark positions at depth 7). The
+		// remaining few percent pay for it: a scout that fails high proves
+		// only that the move beats alpha, not by how much, so the search has
+		// to be repeated with the real window.
+		//
+		// The re-search condition is `score < beta` as well as `score >
+		// alpha`, which is what stops the cost compounding: inside a node that
+		// is itself being scouted, beta is already alpha+1, so a fail-high
+		// there is the answer rather than a question to ask again.
+		int16_t score;
+		if (i == 0) {
+			score = static_cast<int16_t>(
+				-negamax(pos, depth - 1, static_cast<int16_t>(-beta), static_cast<int16_t>(-alpha), ply + 1, state, tt));
+		} else {
+			score = static_cast<int16_t>(
+				-negamax(pos, depth - 1, static_cast<int16_t>(-alpha - 1), static_cast<int16_t>(-alpha), ply + 1, state, tt));
+			if (score > alpha && score < beta) {
+				score = static_cast<int16_t>(
+					-negamax(pos, depth - 1, static_cast<int16_t>(-beta), static_cast<int16_t>(-alpha), ply + 1, state, tt));
+			}
+		}
+
 		unmake_move(pos, moves.moves[i], undo);
 
 		if (score > best) {

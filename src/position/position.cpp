@@ -316,6 +316,54 @@ void unmake_move(Position& pos, Move m, const StateInfo& undo) {
 	recompute_aggregates(pos);
 }
 
+void make_null_move(Position& pos, StateInfo& undo) {
+	undo.captured_piece = NULL_PIECE;
+	undo.castling_rights = pos.castling_rights;
+	undo.en_passant_square = pos.en_passant_square;
+	undo.halfmove_clock = pos.halfmove_clock;
+	undo.zobrist_key = pos.zobrist_key;
+
+	uint64_t& key = pos.zobrist_key;
+
+	// The en passant square must go, and its key with it. A null move is a
+	// pass, and the right to capture en passant expires the moment its owner
+	// declines to use it -- leaving the square set would let the *opponent*
+	// capture en passant on the following move, which is not a rule of chess
+	// and, worse, would give two different positions the same Zobrist key.
+	if (pos.en_passant_square != NULL_SQUARE) {
+		key ^= zobrist::tables.en_passant_file[pos.en_passant_square % 8];
+		pos.en_passant_square = NULL_SQUARE;
+	}
+
+	// Castling rights are untouched: passing moves neither king nor rook.
+	if (pos.side_to_move == BLACK) pos.fullmove_count++;
+	pos.side_to_move = static_cast<Color>(pos.side_to_move ^ 1);
+	key ^= zobrist::tables.side_to_move;
+
+	// No pawn moved and nothing was captured, so the halfmove clock advances
+	// like it would after any other quiet move. It is what bounds the
+	// repetition scan (position/history.cpp), so it has to stay meaningful.
+	pos.halfmove_clock++;
+
+	// Deliberately no recompute_aggregates(): not one bit of the occupancy
+	// changed. That is the entire appeal of the null move -- it costs a side
+	// flip and two XORs, which is why searching one to prove a position is
+	// already winning is cheap enough to be worth doing.
+}
+
+void unmake_null_move(Position& pos, const StateInfo& undo) {
+	if (pos.side_to_move == WHITE) pos.fullmove_count--;
+	pos.side_to_move = static_cast<Color>(pos.side_to_move ^ 1);
+	pos.en_passant_square = undo.en_passant_square;
+	pos.halfmove_clock = undo.halfmove_clock;
+	pos.zobrist_key = undo.zobrist_key;
+}
+
+bool has_non_pawn_material(const Position& pos, Color color) {
+	return (pos.pieces[color][KNIGHT] | pos.pieces[color][BISHOP] | pos.pieces[color][ROOK] |
+	        pos.pieces[color][QUEEN]) != 0;
+}
+
 bool is_in_check(const Position& pos, Color color) {
 	Bitboard king_bb = pos.pieces[color][KING];
 	if (!king_bb) return false;

@@ -39,6 +39,45 @@ search::SearchResult search_to_depth(const char* fen, int depth) {
 	return search::think(pos, limits, tt, move_history, stop);
 }
 
+// What a depth-1 search is worth if quiescence does nothing but stand pat:
+// the best static score the side to move can step into, over the moves that
+// leave the opponent no capture to answer with.
+//
+// Computed here rather than written down as a literal, because since Milestone
+// 5 the evaluation is positional -- every move changes the score, so the old
+// "a quiet move leaves the material count alone" shortcut is gone, and a
+// hardcoded number would pin the piece-square tables instead of the search.
+// This walks the same moves the search does and applies only the rule under
+// test: nobody is obliged to capture.
+int16_t best_static_reply(const char* fen) {
+	Position pos = parse_fen(fen);
+	MoveList moves;
+	generate_legal_moves(moves, pos);
+
+	int16_t best = -search::kInfiniteScore;
+	for (int i = 0; i < moves.count; i++) {
+		StateInfo undo;
+		make_move(pos, moves.moves[i], undo);
+
+		MoveList replies;
+		generate_legal_moves(replies, pos);
+		bool capture_available = false;
+		for (int j = 0; j < replies.count; j++) {
+			if (search::is_capture(pos, replies.moves[j])) capture_available = true;
+		}
+		// A move the opponent can answer with a capture leads to a node
+		// quiescence will search rather than stand pat on, so it says nothing
+		// about the floor being tested here.
+		if (!capture_available) {
+			int16_t score = static_cast<int16_t>(-eval::evaluate(pos));
+			if (score > best) best = score;
+		}
+
+		unmake_move(pos, moves.moves[i], undo);
+	}
+	return best;
+}
+
 // White queen on d1, black pawn on d5 defended twice (c6 and e6). Qxd5 wins a
 // pawn on the board and loses the queen on the very next ply.
 constexpr const char* kHorizonFen = "4k3/8/2p1p3/3p4/8/8/8/3QK3 w - - 0 1";
@@ -60,17 +99,16 @@ TEST_CASE("quiescence: refuses a capture that loses material one ply past the ho
 // can never be dragged below its static evaluation by the availability of a
 // bad capture.
 //
-// The exact-equality check is the point. White's best depth-1 line is a quiet
-// queen move, after which Black -- who has no captures at all -- must stand pat
-// and return its own static score. Any bug that forced a capture instead of
-// standing pat, or that lost the sign on the way back up, moves this number.
+// The exact-equality check is the point. Every capture available to White here
+// loses material, so the node is worth the best quiet move on the board and
+// nothing else: White steps the queen somewhere, Black -- who then has no
+// capture at all -- stands pat and returns its own static score. Any bug that
+// forced a capture instead of standing pat, or that lost the sign on the way
+// back up, moves this number.
 TEST_CASE("quiescence: stand-pat floors a node at its static evaluation", "[quiescence][search]") {
-	Position pos = parse_fen(kHorizonFen);
-	int16_t static_score = eval::evaluate(pos);
-
 	search::SearchResult result = search_to_depth(kHorizonFen, 1);
 
-	CHECK(result.score == static_score);
+	CHECK(result.score == best_static_reply(kHorizonFen));
 }
 
 // The mirror of the test above: declining bad captures must not turn into
@@ -105,9 +143,16 @@ TEST_CASE("quiescence: terminates on a capture-dense position", "[quiescence][se
 
 // A position with no captures available anywhere is the degenerate case:
 // quiescence should return the static evaluation immediately and add nothing
-// to the tree. White is simply a rook up.
-TEST_CASE("quiescence: a position with no captures scores as plain material", "[quiescence][search]") {
-	search::SearchResult result = search_to_depth("4k3/8/8/8/8/8/8/4K2R w - - 0 1", 1);
+// to the tree. White is a rook up, and no capture exists for either side at
+// any depth, so the search cannot be doing anything but standing pat at every
+// leaf.
+TEST_CASE("quiescence: a position with no captures scores as its static evaluation",
+          "[quiescence][search]") {
+	constexpr const char* kQuietFen = "4k3/8/8/8/8/8/8/4K2R w - - 0 1";
+	search::SearchResult result = search_to_depth(kQuietFen, 1);
 
-	CHECK(result.score == eval::piece_value(ROOK));
+	CHECK(result.score == best_static_reply(kQuietFen));
+	// Still recognisably a rook up: the positional terms move the number, they
+	// don't drown the material in it.
+	CHECK(result.score > 400);
 }
