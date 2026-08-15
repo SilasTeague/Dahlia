@@ -514,6 +514,74 @@ extension all along, gated on "once profiling shows eval cost matters". It now d
 microbenchmark that will justify it exists as of this change. The remaining Milestone 5 work
 (PVS, null-move pruning) attacks the same deficit from the other end by shrinking the tree.
 
+### Principal Variation Search (Milestone 5)
+
+PVS is a bet on move ordering: search the first move at each node with a full window, and every
+move after it with a null window one point wide, which asks only "is this better than what we
+already have?" — a question that fails high or low almost immediately. When the first move really
+is best, the rest of the node is answered cheaply. When it isn't, the scout has to be repeated
+with the real window, and the bet loses.
+
+So the bet was checked before it was placed. Instrumenting the search to count *where* beta
+cutoffs happen:
+
+| Position | Cutoffs on the first move tried |
+|---|---:|
+| Opening | 84.3% |
+| Middlegame (Kiwipete) | 95.5% |
+| Endgame (K+P) | 92.7% |
+| Tactical (WAC.019) | 92.7% |
+
+That's a search whose first guess is right five times in six at worst — Milestone 4's ordering
+work is what paid for it. The result, nodes to reach a fixed depth:
+
+| Position | Depth 5 | Δ | Depth 7 | Δ |
+|---|---:|---:|---:|---:|
+| Opening | 26,959 → 26,183 | −2.9% | 533,650 → 488,704 | −8.4% |
+| Middlegame (Kiwipete) | 193,194 → 152,499 | **−21.1%** | 2,764,317 → 2,393,395 | −13.4% |
+| Endgame (K+P) | 1,427 → 1,330 | −6.8% | 7,043 → 6,437 | −8.6% |
+| Tactical (WAC.019) | 159,796 → 156,240 | −2.2% | 4,097,425 → 3,821,576 | −6.7% |
+
+**Every score and best move is unchanged**, which is the entire claim PVS makes — a smaller tree,
+the same answer — and it's now pinned in
+[`test_search_nodes.cpp`](tests/unit/test_search_nodes.cpp) as a table of scores and moves
+alongside the node counts, so a future change that quietly starts searching *differently* rather
+than *less* fails a test instead of passing unnoticed.
+
+Verifying that took an experiment, because scores in the K+P endgame did shift at deep fixed
+depths (+268 vs +980 at depth 18). Rebuilding both versions with the transposition table's score
+cutoffs disabled — leaving it as a move-ordering hint only — made the scores identical at every
+depth and position tested. So PVS is exact, and what moves the numbers is the table: a
+null-window search stores a *bound* where a full-window search stored an exact score, and a later
+probe that gets a bound where it used to get an exact value has to search rather than return.
+
+**Which is also why the K+P endgame got worse, and it's the one position that did:**
+
+| Endgame (K+P), nodes to depth | 15 | 18 | 20 | 22 |
+|---|---:|---:|---:|---:|
+| Before PVS | 219,339 | 620,528 | 1,178,279 | 2,531,519 |
+| After PVS | 278,001 | 655,497 | 1,214,204 | 5,166,104 |
+
+Depth reached in a fixed 5 seconds fell from 25 to 23 there (reproducibly — three runs, identical
+node counts). It is not re-search overhead: the instrumented build puts the re-search rate at
+**0.01–0.46%** of scouts across every position and depth measured. It's the TT effect above,
+landing hardest on the position that leans on the table most — five pieces, and nearly every line
+transposing into every other.
+
+Two fixes were tried and both rejected on the numbers:
+
+- **Skipping the scout near the leaves** (full window at depth ≤ 1, 2, or 3). Changed the three
+  normal positions by under 0.5%, and in the endgame swung *both* ways with the threshold
+  (depth ≤ 2 halved nodes at depth 22 but cost 7% at depth 20; depth ≤ 3 was worse at both). That
+  is one position's noise, not a signal, and tuning a constant on it would be overfitting.
+- **Preferring exact entries over bounds when replacing a TT slot at equal depth.** Zero change,
+  to the node, on all six measurements — the case is rarer than the theory suggests.
+
+So textbook PVS ships, with the regression documented rather than tuned away. The honest summary
+is that PVS trades a large middlegame gain for a small endgame loss, which is the same shape as
+Milestone 4's ordering result and the same reason: a position with few moves and no captures is
+where every ordering-dependent optimization has the least to work with.
+
 ### Movegen baseline
 
 The loop/bit-shift ray walker, unchanged since Milestone 1 — this is the number a future
@@ -564,7 +632,7 @@ leave `master` in a buildable, UCI-playable state.
 | 2 | **`Position`, make/unmake, Zobrist, minimal UCI** — legal game playable in a real GUI | ✅ Complete |
 | 3 | **Material eval + alpha-beta** — negamax, iterative deepening, time management | ✅ Complete |
 | 4 | **Move ordering, quiescence, TT** | ✅ Complete — TT, MVV-LVA, killers, history, quiescence ([numbers](#move-ordering-and-quiescence-milestone-4)) |
-| 5 | **PVS, piece-square tables / tapered eval, null-move pruning** | 🚧 In progress — tapered PSTs landed ([numbers](#piece-square-tables-and-tapered-eval-milestone-5)) |
+| 5 | **PVS, piece-square tables / tapered eval, null-move pruning** | 🚧 In progress — [tapered PSTs](#piece-square-tables-and-tapered-eval-milestone-5) and [PVS](#principal-variation-search-milestone-5) landed; null-move pruning next |
 | 6 | **Aspiration windows, late move reductions** | ⬜ Not started |
 | 7 | **Polish & portfolio packaging** — architecture diagrams, full option set, strength estimate | 🚧 Partial — this README, the live deployment, and the release pipeline are done |
 | 8+ | **Lazy-SMP search**, opening book, evaluation tuning harness | ⬜ Committed stretch goals |

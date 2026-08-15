@@ -1,0 +1,101 @@
+{
+  "commit": "714f776",
+  "dirty": true,
+  "tag": "",
+  "timestamp": "2026-08-15T03:57:21Z",
+  "compiler": "Apple clang version 14.0.3 (clang-1403.0.22.14.1)",
+  "build": "RelWithDebInfo",
+  "cxx_flags": "-O2 -g",
+  "repetitions": 5,
+  "cpu": "Apple M2",
+  "benchmarks": {
+    "microbench": [
+      {
+        "name": "BM_SquareBBShift",
+        "real_time": 0.28716532695902985,
+        "cpu_time": 0.2871528464708902,
+        "time_unit": "ns"
+      },
+      {
+        "name": "BM_RookAttacksLookup",
+        "real_time": 8.27691834309313,
+        "cpu_time": 8.27654784602551,
+        "time_unit": "ns"
+      },
+      {
+        "name": "BM_BishopAttacksLookup",
+        "real_time": 5.252755446294303,
+        "cpu_time": 5.252683554415764,
+        "time_unit": "ns"
+      },
+      {
+        "name": "BM_QueenAttacksLookup",
+        "real_time": 13.768470385927955,
+        "cpu_time": 13.768370321233755,
+        "time_unit": "ns"
+      },
+      {
+        "name": "BM_GeneratePseudoLegalMoves_StartPosition",
+        "real_time": 78.73896806208174,
+        "cpu_time": 78.71172575251661,
+        "time_unit": "ns"
+      },
+      {
+        "name": "BM_Evaluate_StartPosition",
+        "real_time": 34.46124661236071,
+        "cpu_time": 34.45872154859848,
+        "time_unit": "ns"
+      },
+      {
+        "name": "BM_Evaluate_Middlegame",
+        "real_time": 34.30175069425026,
+        "cpu_time": 34.30172001653173,
+        "time_unit": "ns"
+      },
+      {
+        "name": "BM_Evaluate_Endgame",
+        "real_time": 9.136369741890265,
+        "cpu_time": 9.136371923287046,
+        "time_unit": "ns"
+      }
+    ],
+    "search_bench": [
+      {
+        "name": "BM_Search_Opening",
+        "real_time": 2.8757565308712207,
+        "cpu_time": 2.8756995884773433,
+        "time_unit": "ms",
+        "nodes": 26183.0,
+        "nodes_per_second": 9104914.889202198,
+        "depth_reached": 5.0
+      },
+      {
+        "name": "BM_Search_Middlegame",
+        "real_time": 32.80009654521233,
+        "cpu_time": 32.69168181818188,
+        "time_unit": "ms",
+        "nodes": 152499.0,
+        "nodes_per_second": 4664764.598167164,
+        "depth_reached": 5.0
+      },
+      {
+        "name": "BM_Search_Endgame",
+        "real_time": 0.1345237800744869,
+        "cpu_time": 0.13441383263277878,
+        "time_unit": "ms",
+        "nodes": 1330.0,
+        "nodes_per_second": 9894814.94537535,
+        "depth_reached": 5.0
+      },
+      {
+        "name": "BM_Search_Tactical",
+        "real_time": 15.732580230784757,
+        "cpu_time": 15.73035897435851,
+        "time_unit": "ms",
+        "nodes": 156240.0,
+        "nodes_per_second": 9932386.174700854,
+        "depth_reached": 5.0
+      }
+    ]
+  }
+}
