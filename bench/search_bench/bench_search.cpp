@@ -102,4 +102,17 @@ static void BM_Search_Endgame(benchmark::State& state) {
 }
 BENCHMARK(BM_Search_Endgame)->Unit(benchmark::kMillisecond);
 
+static void BM_Search_Tactical(benchmark::State& state) {
+	// WAC.019, an opening-phase position with a concrete tactic (Bxf7+).
+	// REFERENCE.md 3.11 specifies an opening/middlegame/endgame/*tactical* mix
+	// and this is the position that fills the last slot: unlike the three
+	// above, it rewards resolving forcing lines rather than surveying quiet
+	// ones, which is what makes it the position most sensitive to ordering and
+	// pruning work. It is the same position as WAC.019 in
+	// tests/unit/test_tactics.cpp, so a node-count movement here and a solve/
+	// no-solve there refer to the same search.
+	run_fixed_depth_search(state, "r1bqrbn1/pp3ppp/2np4/2p5/2B1P3/2N2N2/PPP2PPP/R1BQR1K1 w - - 0 1");
+}
+BENCHMARK(BM_Search_Tactical)->Unit(benchmark::kMillisecond);
+
 BENCHMARK_MAIN();

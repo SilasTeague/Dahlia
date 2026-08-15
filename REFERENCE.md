@@ -401,7 +401,7 @@ class Position {
 
 **Responsibilities (staged):**
 - v0: material count only (piece values) — enough to make search meaningful and testable.
-- v1: piece-square tables (PSTs), tapered for game phase (midgame/endgame interpolation).
+- v1: piece-square tables (PSTs), tapered for game phase (midgame/endgame interpolation). *Landed 2026-08-15 (Milestone 5).* Two scores are accumulated per position — one against the midgame tables, one against the endgame tables — and interpolated by a phase counted in remaining non-pawn material (24 = full board, 0 = kings and pawns), rather than one table selected by a phase threshold: a threshold makes the score jump the moment a queen comes off, and the search will play a bad trade to land on the favourable side of a discontinuity it can see. Values are PeSTO's published tables (see the decision below). Cost: 34.2 ns per call on a full board against roughly 110 ns per node, i.e. about a third of the engine's time — which is the profiling evidence the "future extensions" note below was waiting on.
 - v2 (future, optional): mobility, pawn structure, king safety terms.
 - v3 (future, optional/stretch): NNUE-style learned evaluation — explicitly a stretch goal, not required for the portfolio story to succeed; classical eval that's well-documented and well-tested is itself a strong showcase, and NNUE brings a large scope/complexity jump (training pipeline, data generation) that should be its own clearly-scoped milestone if pursued.
 
@@ -412,11 +412,13 @@ namespace eval {
 }
 ```
 
-**Internal data structures:** PST tables (`std::array<std::array<int16_t,64>, 6>` per phase), game-phase counter (incremental, updated in make/unmake alongside material).
+**Internal data structures:** PST tables (`constexpr int16_t[6][64]` per phase, written a8-first so the source reads like a printed board — a White piece indexes them at `square ^ 56` and a Black one at `square`), plus a game-phase count. **Decision (2026-08-15): the phase is recomputed per call, not maintained incrementally in make/unmake**, matching the rest of the evaluation, which is also recomputed per call; making one of the two incremental would pay the bookkeeping in the hottest function in the engine and still leave the full board walk in place.
 
-**Future extensions:** incremental evaluation updates (update score delta in make/unmake rather than recomputing fully each node) once profiling shows eval cost matters relative to search overhead.
+**Decision (2026-08-15): the PST values are PeSTO's published tables, used as-is rather than hand-picked or tuned here.** Piece-square values are either fitted to game data or guessed, and Dahlia's own tuner (`tools/tuner`, Texel-style) is a committed post-Milestone-7 stretch goal, not something this milestone can produce. Borrowing a published tuned set buys the strength this milestone exists for without dressing eyeballed numbers up as tuned ones; the attribution lives in `eval/evaluate.cpp`, and the tuner, when it lands, replaces these values and gets measured against them.
 
-**Common pitfalls:** sign errors relative to side-to-move (a shockingly common and shockingly hard-to-notice bug class — guard with tests asserting `evaluate(pos) == -evaluate(pos.mirrored())` for symmetric positions); PST tables not flipped correctly for Black.
+**Future extensions:** incremental evaluation updates (update score delta in make/unmake rather than recomputing fully each node) once profiling shows eval cost matters relative to search overhead. **As of 2026-08-15 it does**: `BM_Evaluate_StartPosition` measures 34.2 ns against roughly 110 ns per search node, and the tapered eval cost 25–33% of nodes/sec and a ply of depth in fixed time when it landed (see the README's Milestone 5 section). This is now a justified optimization with a benchmark to prove it in or out, rather than a speculative one.
+
+**Common pitfalls:** sign errors relative to side-to-move (a shockingly common and shockingly hard-to-notice bug class — guard with tests asserting `evaluate(pos) == -evaluate(pos.mirrored())` for symmetric positions; note that with a *side-to-move-relative* evaluation the mirror must also swap colours, which swaps who is to move, so the correct assertion is equality rather than negation — see `test_eval.cpp`); PST tables not flipped correctly for Black — which no material test catches, since every one of them compares a position to itself.
 
 **Implementation order:** material-only version can exist as soon as `Position` exists; needed before search produces meaningful moves.
 
@@ -580,6 +582,7 @@ For every metric below: what it measures, how to measure it, what tooling produc
 | **Nodes per second (NPS)** | Search throughput | `nodes / elapsed_time` during a fixed-depth search on benchmark positions. `compare_bench_results.py` **derives** this from the recorded node count and time rather than reading `nodes_per_second`, which keeps the three columns mutually consistent and repairs results recorded before the 2026-08-14 harness fix (see below) | `bench/search_bench` | Tracked per run in `bench/results/history/` (local, manual) |
 | **Sliding-attack lookup latency** | Sliding-attack lookup cost (loop-based initially; re-baselined when magics land) | Google Benchmark micro-bench isolating `rook_attacks`/`bishop_attacks`/`queen_attacks(square, occupancy)` calls | `bench/microbench` | Regression band via `compare_bench_results.py`; also the before/after metric required to justify adopting magic bitboards later |
 | **Move generation speed** | Cost of producing a full pseudo-legal move list | Google Benchmark over representative positions (batch, avg moves/position) | `bench/microbench` | Regression band |
+| **Evaluation cost** | What one `evaluate()` call costs, and how it scales with pieces on the board | Google Benchmark over a full board, a middlegame, and a five-piece endgame | `bench/microbench` (`BM_Evaluate_*`, added 2026-08-15) | Regression band; also the before/after metric that will justify incremental evaluation (3.6) |
 | **TT hit rate** | Search efficiency / cache effectiveness | `hits / probes` counted during a fixed search | Instrumented counters, reported via debug UCI `info string` or bench harness | Tracked, expect increase after ordering/TT improvements |
 | **Hashfull (‰)** | TT memory pressure at a given hash size | UCI standard `info hashfull` | Built into TT | N/A (informational, UCI-required) |
 | **Search depth reached** | Search efficiency within time budget | Max depth completed in fixed time on benchmark positions | `bench/search_bench` | Tracked; should trend up as pruning improves |
@@ -642,12 +645,16 @@ Two deviations from the plan above, both deliberate:
 - **The tactical suite is embedded in `tests/unit/test_tactics.cpp` rather than read from `tests/data/*.epd`.** A file-backed suite makes the test depend on the working directory, so it behaves differently under `ctest`, an IDE runner, and a bare `./dahlia_unit_tests`. The `bm` field of each source record is translated to UCI in the table and the WAC id is retained, so each position is still traceable to the published suite. `tests/data/` remains in 1.1's target layout for suites too large to embed.
 - **The SPRT match has not been run.** It is not an engine deliverable — the match rig, opening book, and rating ladder live in a separate repository — so it does not gate this milestone's code. Milestone 4 is the first tag worth running one against, and the README states plainly that Dahlia has no Elo figure rather than inventing one.
 
+**Correction (2026-08-15).** The tactical figures reported above and in the README were measured on a position whose FEN was never committed — not to `bench/search_bench`, not to the tests, not anywhere in the history — which made them the only numbers in the project that could not be re-run. A tactical position is now pinned as `BM_Search_Tactical` (WAC.019, the position the tactics suite already carries), filling the tactical slot 3.11 asks the macrobenchmark position set to cover, and the Milestone 4 endpoints were re-measured against it: nodes to depth 7 fell 89.9% (34,941,856 → 3,523,284) between `098d366` and `030d518`, and depth reached in a fixed 5 s rose from 7 to 8. The per-step breakdown is not recoverable for that position — the four ordering changes share one commit — so only the endpoints are quoted. The 55%/50% opening and Kiwipete figures are unaffected; those positions were pinned all along.
+
 ### Milestone 5: PVS, PSTs/Tapered Eval, Null-Move Pruning
 - **Goals:** stronger search algorithm and richer evaluation.
 - **Deliverables:** Principal Variation Search, piece-square tables with tapered midgame/endgame eval, null-move pruning with zugzwang guard.
 - **Benchmarks:** nodes-to-depth-N again; SPRT vs. Milestone 4 tag.
 - **Tests:** eval symmetry test (3.6); null-move zugzwang regression test (a known K+P endgame position where naive null-move fails, confirming the guard works).
 - **Success criteria:** SPRT-confirmed Elo gain over Milestone 4.
+
+**Status (2026-08-15).** In progress. Tapered piece-square tables landed first, ahead of the search work, because the tactics suite's known-failure list said evaluation — not search — was the binding constraint (see Milestone 4's status). It solved one of the four recorded failures (Win At Chess 14/18 → 15/18 at depth 7); the three that remain need king safety or the bishop pair, which PSTs structurally cannot express. It also cost 25–33% of nodes/sec and a ply of depth in fixed time, recorded rather than smoothed over: eval went from ten popcounts to a full board walk, and the remaining deliverables (PVS, null-move pruning) shrink the tree the eval now walks. PVS and null-move pruning are not yet implemented.
 
 ### Milestone 6: Aspiration Windows, Late Move Reductions
 - **Goals:** deeper effective search within the same time budget.
@@ -706,6 +713,8 @@ Record contested decisions here as they're made, newest first. Full-form ADRs fo
 
 | Date | Decision | Summary | ADR |
 |---|---|---|---|
+| 2026-08-15 | PST values are PeSTO's published tables rather than hand-picked ones; the phase and the evaluation are both recomputed per call, with incremental update deferred to its own measured change | See 3.6 | — (settled here, no separate ADR needed) |
+| 2026-08-15 | Every position a published benchmark number refers to must be pinned in the repository; the macrobenchmark set gains `BM_Search_Tactical` (WAC.019) and Milestone 4's tactical column was re-measured against it | See 3.11, Milestone 4 status | — (settled here, no separate ADR needed) |
 | 2026-08-14 | Quiescence generates pseudo-legal moves and proves legality via the `make_move` it already performs, rather than calling `generate_legal_moves`; a dedicated capture generator (staged movegen) stays a future extension | See 3.3, 3.8 | `docs/adr/0005-quiescence-pseudo-legal-movegen.md` |
 | 2026-08-14 | Move-ordering bands (TT move > captures/promotions by MVV-LVA > killers > history > quiets) are kept numerically disjoint, so each band is tunable without collisions; killers are per-search, the history table is per-game and caller-owned like the TT | See 3.8 | — (settled here, no separate ADR needed) |
 | 2026-08-13 | No benchmark workflow: deterministic node counts are a CI test, wall-clock timing is local and manual — **supersedes the 2026-07-26 trigger decision, which is now moot** | See 2.3, 3.11 | `docs/adr/0004-node-counts-in-ci-timing-local.md` |

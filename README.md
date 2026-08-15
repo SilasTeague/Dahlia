@@ -60,8 +60,12 @@ measure the replacement against:
   measured on its own rather than landed as a single "move ordering" commit whose parts can't be
   told apart. ([See the numbers.](#move-ordering-and-quiescence-milestone-4))
 
-Every performance claim in this README is traceable to a committed JSON file under
-[`bench/results/history/`](bench/results/history).
+Every performance claim in this README is reproducible: the depth-5 numbers come from committed
+JSON under [`bench/results/history/`](bench/results/history), and the milestone comparisons at
+depth 7 or a fixed five seconds are fixed-depth and fixed-time searches of the same four pinned
+positions, run against the named commits. Nothing here is quoted from a position or a build the
+repository doesn't contain — a rule this README broke once and now
+[documents](#move-ordering-and-quiescence-milestone-4).
 
 ---
 
@@ -81,7 +85,7 @@ util  ←  core  ←  movegen  ←  position  ←  search  ←  uci
 | `core/` | `Bitboard`, `Square`, `Piece`, `Color`, `CastlingRights`, `Move` | any chess *rules* logic |
 | `movegen/` | attack tables, ray-walk sliding attacks, pseudo-legal + legal generation | knowing about search or eval |
 | `position/` | board state, FEN in/out, make/unmake, Zobrist hashing | scoring or choosing moves |
-| `eval/` | material-only static evaluation (v0) | anything search-dependent |
+| `eval/` | material + tapered piece-square tables (v1) | anything search-dependent |
 | `search/` | negamax alpha-beta, iterative deepening, transposition table, move ordering, quiescence, time budget | I/O of any kind |
 | `uci/` | protocol loop, search thread ownership, output serialization | being depended on by anything |
 
@@ -180,7 +184,7 @@ bestmove g1f3
 ```
 
 The score alternating between `+100` and `-100` across depths is the horizon effect made
-visible: with a material-only evaluation and no quiescence search, an unresolved capture
+visible: with the material-only evaluation of the day and no quiescence search, an unresolved capture
 sequence scores as a won or lost pawn depending purely on which side happens to move last at
 the leaf. Quiescence search is what fixes this
 ([see limitations](#current-limitations)).
@@ -380,23 +384,23 @@ benchmark suite you only cite when it agrees with you isn't a benchmark suite.
 ### Move ordering and quiescence (Milestone 4)
 
 Alpha-beta's node count is decided almost entirely by how early the best move gets searched, so
-the four Milestone 4 changes were landed and measured **one at a time**. Same machine, same
+the four Milestone 4 changes were built and measured **one at a time**. Same machine, same
 build, **nodes to reach depth 7** — cumulative across the iterative-deepening iterations, which
 is the search's real cost:
 
-| After adding | Opening | Middlegame (Kiwipete) | Tactical | Endgame (K+P) |
-|---|---:|---:|---:|---:|
-| *(Milestone 3 baseline)* | 828,549 | 4,866,267 | 11,835,157 | 3,739 |
-| MVV-LVA capture ordering | 502,967 | 1,394,445 | 3,044,039 | 3,754 |
-| \+ killer moves | 371,750 | 1,392,651 | 2,124,130 | 4,028 |
-| \+ history heuristic | 345,941 | 1,384,999 | 1,959,027 | 4,046 |
-| \+ quiescence search | 370,254 | 2,431,525 | 2,326,309 | 6,349 |
-| **Net change** | **−55.3%** | **−50.0%** | **−80.3%** | **+69.8%** |
+| After adding | Opening | Middlegame (Kiwipete) | Endgame (K+P) |
+|---|---:|---:|---:|
+| *(Milestone 3 baseline)* | 828,549 | 4,866,267 | 3,739 |
+| MVV-LVA capture ordering | 502,967 | 1,394,445 | 3,754 |
+| \+ killer moves | 371,750 | 1,392,651 | 4,028 |
+| \+ history heuristic | 345,941 | 1,384,999 | 4,046 |
+| \+ quiescence search | 370,254 | 2,431,525 | 6,349 |
+| **Net change** | **−55.3%** | **−50.0%** | **+69.8%** |
 
 Reading this honestly matters more than the headline number:
 
 - **MVV-LVA did most of the work.** Ordering captures by what they win, before what they risk,
-  cut the tactical position by 74% on its own. Nothing else in the milestone comes close.
+  cut Kiwipete by 71% on its own. Nothing else in the milestone comes close.
 - **Killers and history helped where MVV-LVA couldn't.** Both only rank *quiet* moves, so their
   gains land in the opening position (down another 31%), which has few captures to order, and
   are nearly invisible on Kiwipete, where MVV-LVA had already found the cutoffs.
@@ -414,7 +418,31 @@ The metric that shows what quiescence bought is **depth reached in a fixed 5 sec
 | Opening | 9 | **10** | 15,347,198 → 5,957,927 |
 | Middlegame (Kiwipete) | 7 | **8** | 4,866,267 → 2,431,525 |
 | Endgame (K+P) | 25 | **27** | — |
-| Tactical | 8 | 8 | 25,004,055 → 7,539,050 |
+| Tactical (WAC.019) | 7 | **8** | 34,941,856 → 3,523,284 |
+
+**A correction to the tactical numbers, made at Milestone 5.** The two tables above originally
+carried a fourth position labelled "Tactical" whose FEN was never committed — not to
+`bench_search.cpp`, not to the tests, not anywhere in the history. That made it the one
+performance claim in this README that couldn't be reproduced, which is exactly the failure mode
+the benchmark history exists to prevent. The fix was to pin a tactical position for good
+([`BM_Search_Tactical`](bench/search_bench/bench_search.cpp) — WAC.019, the same position the
+tactics suite already uses, filling the tactical slot
+[REFERENCE.md §3.11](REFERENCE.md) asks the position set to cover) and re-measure it against the
+two commits that bracket Milestone 4: [`098d366`](https://github.com/SilasTeague/Dahlia/commit/098d366)
+and [`030d518`](https://github.com/SilasTeague/Dahlia/commit/030d518). Those are the numbers in
+the table above, and in this one:
+
+| Tactical (WAC.019) | Milestone 3 `098d366` | Milestone 4 `030d518` | Δ |
+|---|---:|---:|---:|
+| Nodes to depth 7 | 34,941,856 | 3,523,284 | **−89.9%** |
+| Nodes to depth 5 | 458,327 | 151,544 | **−66.9%** |
+| Score at depth 7 | +370 | +270 | — |
+
+The per-step breakdown can't be recovered for this position: the four ordering changes share a
+single commit, so the intermediate states were measured but never committed, and only the
+endpoints can be re-run. The score column is worth its own line, though — the drop from +370 to
++270 isn't a regression, it's quiescence declining a capture sequence the pre-quiescence search
+scored as winning material at the horizon.
 
 And the behaviour it fixes is directly observable. On `4k3/8/2p1p3/3p4/8/8/8/3QK3 w - -`, where
 the d5 pawn is defended twice, a depth-1 search before Milestone 4 played **Qxd5 and scored it
@@ -436,6 +464,55 @@ performs for the recursion. Calling `generate_legal_moves` instead — which mak
 move to filter it — meant paying full legality checks on ~35 quiet moves in order to search 4
 captures, and it dropped middlegame throughput from 5.4M to 2.5M nodes/sec
 ([ADR 0005](docs/adr/0005-quiescence-pseudo-legal-movegen.md)).
+
+### Piece-square tables and tapered eval (Milestone 5)
+
+Until this change the engine counted material and nothing else, and the tactics suite had
+recorded four positions it couldn't solve for exactly that reason. The evaluation now scores
+*where* each piece stands as well as what it is worth, twice — once for a full board and once for
+an endgame — and blends the two by how much material is left
+([`evaluate.cpp`](src/eval/evaluate.cpp)).
+
+The headline result is the one the known-failure list was checked in to make falsifiable:
+
+| | Milestone 4 | Milestone 5 |
+|---|---:|---:|
+| [Win At Chess](tests/unit/test_tactics.cpp) subset solved at depth 7 | 14/18 | **15/18** |
+
+WAC.022 moved from the known-failure list to the solved list. It's a pawn endgame where
+`...Nxg4+` wins a pawn and centralizes the king — a material-only evaluation scored the result
+level, because everything the move actually gains was invisible to it. The other three still
+fail, and the comment above the list now says why: they turn on king safety and the bishop pair,
+which piece-square tables don't reach. A table scores where a piece stands, not what it's doing.
+
+**It cost speed, and the numbers are worth stating plainly rather than burying:**
+
+| | Opening | Middlegame | Endgame | Tactical |
+|---|---:|---:|---:|---:|
+| Nodes to depth 5 | +17.1% | +19.8% | +1.1% | +5.4% |
+| Nodes/sec | −32.5% | −25.6% | −11.1% | — |
+| Depth reached in 5 s | 10 → **9** | 8 → 8 | 27 → **25** | 8 → 8 |
+
+Two separate effects, and it's worth not conflating them:
+
+- **Node counts went up** because a positional evaluation returns far fewer *equal* scores than a
+  material-only one did. Ties are cheap for alpha-beta — sibling moves that score identically cut
+  off immediately — and a table that distinguishes a knight on d4 from one on a1 stops handing
+  them out.
+- **Nodes/sec went down** because `evaluate()` stopped being ten popcounts and became a walk over
+  every piece on the board with two table lookups each — **34.2 ns** on a full board against
+  **9.1 ns** on a five-piece endgame, now tracked as
+  [`BM_Evaluate_*`](bench/microbench/bench_eval.cpp). At roughly 110 ns per node, that's about a
+  third of the engine's time spent in evaluation, and the endgame's smaller loss lines up exactly
+  with its smaller board.
+
+Together those cost a ply of depth in the opening and two in the K+P endgame. That is a real
+regression in search depth, accepted deliberately and not permanently: the fix is incremental
+evaluation — updating a running score inside `make_move`/`unmake_move` instead of recomputing
+from scratch at every node — which [REFERENCE.md §3.6](REFERENCE.md) has listed as a future
+extension all along, gated on "once profiling shows eval cost matters". It now does, and the
+microbenchmark that will justify it exists as of this change. The remaining Milestone 5 work
+(PVS, null-move pruning) attacks the same deficit from the other end by shrinking the tree.
 
 ### Movegen baseline
 
@@ -487,7 +564,7 @@ leave `master` in a buildable, UCI-playable state.
 | 2 | **`Position`, make/unmake, Zobrist, minimal UCI** — legal game playable in a real GUI | ✅ Complete |
 | 3 | **Material eval + alpha-beta** — negamax, iterative deepening, time management | ✅ Complete |
 | 4 | **Move ordering, quiescence, TT** | ✅ Complete — TT, MVV-LVA, killers, history, quiescence ([numbers](#move-ordering-and-quiescence-milestone-4)) |
-| 5 | **PVS, piece-square tables / tapered eval, null-move pruning** | ⬜ Not started |
+| 5 | **PVS, piece-square tables / tapered eval, null-move pruning** | 🚧 In progress — tapered PSTs landed ([numbers](#piece-square-tables-and-tapered-eval-milestone-5)) |
 | 6 | **Aspiration windows, late move reductions** | ⬜ Not started |
 | 7 | **Polish & portfolio packaging** — architecture diagrams, full option set, strength estimate | 🚧 Partial — this README, the live deployment, and the release pipeline are done |
 | 8+ | **Lazy-SMP search**, opening book, evaluation tuning harness | ⬜ Committed stretch goals |
@@ -558,11 +635,18 @@ Linux release binaries.
 Stated plainly, because a portfolio README that only lists strengths isn't an engineering
 document:
 
-- **Evaluation is material-only.** No piece-square tables, no mobility, no king safety. The
-  engine counts wood and nothing else, so its positional play is weak by construction. This is
-  now the binding constraint on strength rather than search: the four Win At Chess positions the
-  test suite records as failures all need an evaluation term the engine doesn't have, and
-  searching them deeper doesn't help. Piece-square tables and tapered eval are Milestone 5.
+- **Evaluation is material and piece-square tables, nothing else.** No mobility, no pawn
+  structure, no king safety beyond "a castled king scores better than a central one". The three
+  Win At Chess positions still recorded as failures all need one of those terms, and searching
+  them deeper doesn't help — evaluation, not search, remains the binding constraint on strength.
+- **Evaluation is recomputed from scratch at every node.** `evaluate()` walks every piece on the
+  board rather than maintaining a running score through `make_move`/`unmake_move`, which costs
+  about a third of the engine's time (34.2 ns per call on a full board, against roughly 110 ns
+  per node). The incremental version is a known, measurable win with the benchmark for it already
+  in place ([`BM_Evaluate_*`](bench/microbench/bench_eval.cpp)) — it hasn't been done yet.
+- **The piece-square values are borrowed, not tuned here.** They're PeSTO's published tables. A
+  tuner of Dahlia's own is a post-Milestone-7 stretch goal; until it exists, using a tuned set is
+  the honest option and inventing numbers would be the dishonest one.
 - **Quiescence doesn't handle checks.** A node that is *in check* still stands pat as though the
   side to move could decline, and a mate appearing exactly at a quiescence leaf is scored as
   material. Every mate at depth 1 or deeper is still found by the main search; only the
@@ -605,7 +689,7 @@ Dahlia/
 │   ├── core/               # types.h, move.h
 │   ├── movegen/            # attacks, ray-walk sliding attacks, generation
 │   ├── position/           # Position, FEN, make/unmake, Zobrist
-│   ├── eval/               # material-only evaluation
+│   ├── eval/               # material + tapered piece-square tables
 │   ├── search/             # negamax + iterative deepening, TT, time budget
 │   ├── uci/                # protocol loop, search thread, output serialization
 │   └── main.cpp

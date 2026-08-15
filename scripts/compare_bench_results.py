@@ -160,11 +160,20 @@ def render_latest(runs: list, tolerance: float) -> list:
 		rows = []
 		for name in benchmark_names([previous, current], suite):
 			before, after = before_entries.get(name), after_entries.get(name)
+			# Rows for benchmarks present in only one of the two runs are built to
+			# the same width as the rest of the table -- a hardcoded cell count
+			# silently produces a ragged row as soon as a suite gains a metric.
 			if after is None:
-				rows.append([f"`{name}`", "—", "—", "—", "removed"])
+				rows.append([f"`{name}`"] + ["—"] * (2 * len(metrics)) + ["removed"])
 				continue
 			if before is None:
-				rows.append([f"`{name}`", "—", "—", "—", "new"])
+				# A new benchmark has nothing to compare against, but the run
+				# that introduces it is still the run that records it, so its
+				# values are printed with the deltas left empty.
+				row = [f"`{name}`"]
+				for metric in metrics:
+					row += [fmt_value(after.get(metric["key"]), after, metric["is_time"]), "—"]
+				rows.append(row + ["new"])
 				continue
 
 			row = [f"`{name}`"]

@@ -24,9 +24,10 @@
 //
 // What this suite is for: it is a *regression* test, not a strength estimate.
 // Milestone 4's move ordering and quiescence made the engine solve one more of
-// these than it did before (14/18 at depth 7, up from 13 -- see the known
-// failures below); the value of checking them in is that a future search change
-// which quietly stops finding one of them fails here instead of costing rating
+// these than it did before (14/18 at depth 7, up from 13), and Milestone 5's
+// tapered piece-square tables took it to 15/18 -- see the known failures
+// below. The value of checking them in is that a future search change which
+// quietly stops finding one of them fails here instead of costing rating
 // points in a match nobody has run yet.
 
 namespace {
@@ -45,7 +46,7 @@ struct Puzzle {
 	const char* best_move;  // UCI
 };
 
-// Solved at kDepth as of Milestone 4. Positions the engine does not yet solve
+// Solved at kDepth as of Milestone 5. Positions the engine does not yet solve
 // are listed in the test below this one rather than silently omitted.
 constexpr Puzzle kSolved[] = {
 	{"WAC.001", "2rr3k/pp3pp1/1nnqbN1p/3pN3/2pP4/2P3Q1/PPB4P/R4RK1 w - - 0 1", "g3g6"},
@@ -62,6 +63,13 @@ constexpr Puzzle kSolved[] = {
 	{"WAC.014", "r2rb1k1/pp1q1p1p/2n1p1p1/2bp4/5P2/PP1BPR1Q/1BPN2PP/R5K1 w - - 0 1", "h3h7"},
 	{"WAC.015", "1R6/1brk2p1/4p2p/p1P1Pp2/P7/6P1/1P4P1/2R3K1 w - - 0 1", "b8b7"},
 	{"WAC.019", "r1bqrbn1/pp3ppp/2np4/2p5/2B1P3/2N2N2/PPP2PPP/R1BQR1K1 w - - 0 1", "c4f7"},
+	// Promoted out of the known-failure list by Milestone 5's tapered
+	// piece-square tables, which is the exact claim that list was checked in to
+	// make falsifiable. Black's ...Nf6-g4+ wins a pawn and activates the king
+	// in a pawn endgame; a material-only evaluation scored the resulting
+	// position level, because everything it changes -- king centralization,
+	// pawns nearer promotion -- was invisible to it.
+	{"WAC.022", "8/p7/1ppk1n2/5ppp/P1PP4/2P1K1P1/5N1P/8 b - - 0 1", "f6g4"},
 };
 
 std::string move_to_uci(Move m) {
@@ -98,22 +106,24 @@ TEST_CASE("tactics: solves the checked-in Win At Chess subset", "[tactics][searc
 	}
 }
 
-// Recorded, not hidden. All four of these are positions where the right move is
-// found only by an evaluation that understands something beyond material --
-// pawn structure, king safety, the value of the bishop pair -- which is
-// Milestone 5's work, not Milestone 4's. Deeper search does not fix them:
-// they fail identically at one second per move as at depth 7.
+// Recorded, not hidden. Each of these needs an evaluation term the engine
+// still doesn't have: WAC.002 and WAC.030 turn on king safety and the
+// attacking value of an exposed king, WAC.011 on the long-term worth of the
+// bishop pair against a structural weakness. Piece-square tables don't reach
+// any of that -- they score where a piece stands, not what it is doing -- so
+// these three survived Milestone 5 while WAC.022, which needed only king
+// centralization and pawn advancement, did not. Deeper search does not fix
+// them either: they fail identically at one second per move as at depth 7.
 //
 // This is a documentation test. It asserts nothing about the failures; it
 // exists so the list lives next to the suite it belongs to, and so that a
 // future milestone which starts solving them has an obvious place to move
-// the entry to.
+// the entry to -- as Milestone 5 just did.
 TEST_CASE("tactics: known failures are evaluation-limited, not search-limited",
           "[tactics][!mayfail]") {
 	constexpr Puzzle kKnownFailures[] = {
 		{"WAC.002", "8/7p/5k2/5p2/p1p2P2/Pr1pPK2/1P1R3P/8 b - - 0 1", "b3b2"},
 		{"WAC.011", "r1b1kb1r/3q1ppp/pBp1pn2/8/Np3P2/5B2/PPP3PP/R2Q1RK1 w kq - 0 1", "b6c7"},
-		{"WAC.022", "8/p7/1ppk1n2/5ppp/P1PP4/2P1K1P1/5N1P/8 b - - 0 1", "f6g4"},
 		{"WAC.030", "r1b1k2r/1pp1q2p/p1n3p1/3QPp2/8/1BP3B1/P5PP/3R1RK1 w kq - 0 1", "d5g8"},
 	};
 
