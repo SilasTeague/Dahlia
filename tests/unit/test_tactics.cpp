@@ -38,7 +38,23 @@ struct AttackTableInit {
 
 // Deep enough that every position below is found, shallow enough that the
 // whole suite runs in a few seconds in a Debug build with sanitizers on.
-constexpr int kDepth = 7;
+//
+// Raised from 7 to 10 at Milestone 6, when late move reductions changed what a
+// ply costs. LMR searches unpromising moves shallowly, so a nominal depth buys
+// less tree than it used to: at depth 7 this suite dropped to 13/18, with
+// WAC.001 and WAC.007 lost. Neither is a real regression -- run the same two
+// positions under a *time* limit, which is how the engine is actually used, and
+// they come back. The suite scores 15/18 at any movetime from 200 ms up, the
+// same 15 as at Milestone 5.
+//
+// So the depth moved rather than the known-failure list: 10 is where the engine
+// again solves everything it solved before, and it costs about what depth 7
+// cost beforehand (under a second for the whole suite in a release build),
+// because LMR made each ply so much cheaper. What this does mean is that the
+// depth is no longer comparable across milestones. The suite's claim from here
+// on is "the same three positions fail, and they fail on evaluation", not "N
+// solved at depth 7".
+constexpr int kDepth = 10;
 
 struct Puzzle {
 	const char* id;

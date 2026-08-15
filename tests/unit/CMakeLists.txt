@@ -9,6 +9,7 @@ add_executable(dahlia_unit_tests
 	test_ordering.cpp
 	test_quiescence.cpp
 	test_nullmove.cpp
+	test_research.cpp
 	test_tactics.cpp
 	test_repetition.cpp
 	test_tt.cpp

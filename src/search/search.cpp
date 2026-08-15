@@ -1,6 +1,9 @@
 #include "search/search.h"
 
+#include <algorithm>
+#include <array>
 #include <chrono>
+#include <cmath>
 #include <sstream>
 #include <utility>
 
@@ -44,6 +47,11 @@ struct SearchState {
 	// `ucinewgame` -- which is why it isn't here.
 	KillerEntry killers[kMaxPly];
 	HistoryTable& move_history;
+
+	// Which of the heuristics that are allowed to be wrong are switched on.
+	// Copied from the caller once per think(), so no search reads a switch that
+	// could change under it mid-tree.
+	SearchTuning tuning;
 
 	SearchState(std::atomic<bool>& stop, HistoryTable& history_table)
 		: stop_requested(stop), move_history(history_table) {}
@@ -149,7 +157,7 @@ int16_t quiescence(Position& pos, int16_t alpha, int16_t beta, int ply, SearchSt
 		// margin for the positional value this evaluation can't see, wouldn't
 		// reach alpha -- so the capture cannot change this node's score.
 		// Promotions are exempt: their gain isn't the captured piece.
-		if (!is_promotion) {
+		if (state.tuning.delta_pruning && !is_promotion) {
 			Piece victim = pos.board[m.to] != NULL_PIECE ? pos.board[m.to] : PAWN;
 			if (stand_pat + eval::piece_value(victim) + kDeltaMargin <= alpha) continue;
 		}
@@ -177,6 +185,36 @@ int16_t quiescence(Position& pos, int16_t alpha, int16_t beta, int ply, SearchSt
 	return best;
 }
 
+// Half-width of the first aspiration window, in centipawns. A quarter of a pawn
+// either side of the previous iteration's score: wide enough that an ordinary
+// positional drift between plies stays inside it, narrow enough that the window
+// is doing real work. Both ends of that trade were measured -- see
+// docs/adr/0006-aspiration-lmr-constants.md.
+constexpr int kAspirationInitialDelta = 25;
+
+// The depth at which aspirating starts paying. Below it the iteration is too
+// cheap for a narrower window to save anything measurable, and the score is
+// still moving too much for the previous one to be a usable guess.
+constexpr int kAspirationMinDepth = 4;
+
+// Reductions start at depth 3: at depth 2 a reduced search runs at depth 0,
+// which is a bare quiescence, and that answers a different question than the
+// search it stands in for -- the same reasoning that sets kNullMoveMinDepth.
+constexpr int kLmrMinDepth = 3;
+
+// How many moves at each node are searched at full depth before reductions
+// begin. Three covers the move ordering's high-confidence band -- the TT move
+// plus, typically, the best captures or a killer -- so the reductions start
+// exactly where the ordering stops making strong claims.
+constexpr int kLmrFullDepthMoves = 3;
+
+// Table bounds. Depth is capped at kMaxPly because no search goes deeper; the
+// move axis covers the widest realistic move list (218 is the theoretical
+// maximum for a legal chess position) without the table costing anything worth
+// counting at 64 x 256 bytes.
+constexpr size_t kLmrTableDepth = kMaxPly;
+constexpr size_t kLmrTableMoves = 256;
+
 // Null-move pruning gives the opponent two moves in a row and searches the
 // result shallowly. If the side to move is still winning after that gift, the
 // position is so far above beta that the real move list is not worth
@@ -192,6 +230,60 @@ constexpr int kNullMoveReduction = 2;
 // it would run at depth -1, i.e. a bare quiescence, which answers a different
 // question than the search it is standing in for.
 constexpr int kNullMoveMinDepth = 3;
+
+// Late Move Reductions (REFERENCE.md 3.8 responsibility 10, Milestone 6).
+//
+// Every other search technique in this engine is exact: PVS, the TT and
+// aspiration windows all return the score a plain alpha-beta search would have
+// returned, and null-move pruning is guarded so that the one case where it
+// isn't exact is refused. LMR is the first heuristic here that is allowed to be
+// wrong, and the trade it makes is the reason it's worth it: search the moves
+// that ordering already ranked as unpromising to a *shallower* depth, and spend
+// what that saves on depth for everything else.
+//
+// The bet is on the move ordering, not on the moves. By the time the fourth
+// quiet move at a node is reached, the TT move, every capture, both killers and
+// the highest-history quiets have already been searched and none of them beat
+// alpha. A move this late is very unlikely to be the best one -- and if the
+// ordering is right, the only thing the search needs from it is confirmation
+// that it isn't. A shallow search answers that question at a fraction of the
+// cost.
+//
+// When the shallow search is wrong -- the move beats alpha anyway -- the answer
+// is thrown away and the move is searched again at full depth. That re-search
+// is what keeps the failure mode one-sided: a reduced move that looks good gets
+// a proper search before it's believed, so LMR can never *promote* a bad move
+// on shallow evidence. What it can do is miss a good move that the reduced
+// search failed to notice at all, which is a real cost paid for real depth, and
+// the honest way to describe the heuristic.
+//
+// The reduction grows with both depth and move index, via a table of
+// 0.75 + ln(depth) * ln(move_index) / 2.25 truncated to an integer. Both
+// logarithms matter, and multiplying them is what makes the shape right: deep
+// searches can afford to give up more plies because they have more to give,
+// late moves deserve to lose more because ordering is more confident about
+// them, and a move that is both gets reduced hardest. A flat reduction, by
+// contrast, is either too timid at depth 20 or reckless at depth 4. The
+// constants are measured, not inherited -- see
+// docs/adr/0006-aspiration-lmr-constants.md.
+int lmr_reduction(int depth, int move_index) {
+	// Built once on first use. Both axes are clamped to the table's bounds by
+	// the caller, and the logarithms make the far corners flat anyway.
+	static const auto table = [] {
+		std::array<std::array<uint8_t, kLmrTableMoves>, kLmrTableDepth> t{};
+		for (size_t d = 1; d < kLmrTableDepth; d++) {
+			for (size_t m = 1; m < kLmrTableMoves; m++) {
+				double r = 0.75 + std::log(static_cast<double>(d)) * std::log(static_cast<double>(m)) / 2.25;
+				t[d][m] = static_cast<uint8_t>(std::max(0.0, r));
+			}
+		}
+		return t;
+	}();
+
+	size_t d = std::min(static_cast<size_t>(depth), kLmrTableDepth - 1);
+	size_t m = std::min(static_cast<size_t>(move_index), kLmrTableMoves - 1);
+	return table[d][m];
+}
 
 // `allow_null` is false only in the subtree of a null move already made, so
 // the search can never answer "what if I pass?" with "well, what if we both
@@ -215,7 +307,11 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 	TTEntry tt_entry;
 	if (tt.probe(pos.zobrist_key, tt_entry)) {
 		tt_move = tt_entry.best_move;
-		if (ply > 0 && tt_entry.depth >= depth) {
+		// The move is taken from the entry either way -- it is ordering
+		// information, not a claim about a score, and switching the cutoffs off
+		// is meant to isolate the score effect rather than to cripple the
+		// search around it.
+		if (state.tuning.transposition_cutoffs && ply > 0 && tt_entry.depth >= depth) {
 			int16_t tt_score = score_from_tt(tt_entry.score, ply);
 			if (tt_entry.bound == Bound::Exact) return tt_score;
 			if (tt_entry.bound == Bound::LowerBound && tt_score > alpha) alpha = tt_score;
@@ -227,6 +323,15 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 	// The leaf is where quiescence takes over: resolve the pending captures
 	// rather than scoring a position that is mid-exchange.
 	if (depth == 0) return quiescence(pos, alpha, beta, ply, state);
+
+	// Computed once and read three times below -- by null-move pruning, by the
+	// mate/stalemate test, and by LMR, all of which need the same answer about
+	// the same position. It used to be queried inside the null-move condition,
+	// which was cheaper at nodes that null-move rejected early and is now
+	// dearer at those same nodes; the saving at every node that asks twice pays
+	// for it, and the alternative -- three lazily-cached call sites -- costs
+	// more in readability than the query costs in time.
+	const bool in_check = is_in_check(pos, pos.side_to_move);
 
 	// Null-move pruning (REFERENCE.md 3.8 responsibility 8): hand the opponent
 	// a free move and search the result shallowly. If the position is still
@@ -240,11 +345,11 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 	// it makes the search misjudge the K+P benchmark position by 700
 	// centipawns; test_nullmove.cpp pins that.
 	//
-	// The conditions are ordered cheapest-first: two integer comparisons and a
-	// bitboard test reject most nodes before the in-check test, which is the
-	// only one that costs an attack query. Being in check disqualifies the node
-	// outright, since passing there would leave a capturable king and the whole
-	// subtree would be scoring an impossible position.
+	// Being in check disqualifies the node outright, since passing there would
+	// leave a capturable king and the whole subtree would be scoring an
+	// impossible position. That test is free here -- `in_check` is already
+	// computed above for LMR -- so the conditions are ordered by how many nodes
+	// they reject rather than by what they cost.
 	//
 	// The mate-score guard keeps the heuristic away from the one place its
 	// logic inverts. Near a forced mate, "even if I do nothing I'm still above
@@ -258,8 +363,8 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 	// covers the common case (a stalemated side is usually down to a bare
 	// king), and detecting the rest would mean generating the move list here,
 	// which is the cost this heuristic exists to avoid.
-	if (allow_null && ply > 0 && depth >= kNullMoveMinDepth && beta < kMateThreshold &&
-	    has_non_pawn_material(pos, pos.side_to_move) && !is_in_check(pos, pos.side_to_move)) {
+	if (state.tuning.null_move_pruning && allow_null && ply > 0 && depth >= kNullMoveMinDepth &&
+	    beta < kMateThreshold && !in_check && has_non_pawn_material(pos, pos.side_to_move)) {
 		StateInfo undo;
 		make_null_move(pos, undo);
 		// Pushed for the same reason a real move is: the child counts entries
@@ -287,7 +392,7 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 	generate_legal_moves(moves, pos);
 	if (moves.count == 0) {
 		// Mate score shrinks by one per ply toward the root, so a faster mate outscores a slower one.
-		if (is_in_check(pos, pos.side_to_move)) return static_cast<int16_t>(-kMateScore + ply);
+		if (in_check) return static_cast<int16_t>(-kMateScore + ply);
 		return 0;
 	}
 
@@ -307,6 +412,11 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 	state.history.push(pos.zobrist_key);
 	for (int i = 0; i < moves.count; i++) {
 		select_next_move(moves, scores, i);
+
+		// Asked before the move is made, while `pos` is still the position the
+		// move is being played in -- is_capture reads the board square the move
+		// is about to overwrite.
+		const bool is_quiet = !is_capture(pos, moves.moves[i]) && moves.moves[i].promotion == NO_PROMOTION;
 
 		StateInfo undo;
 		make_move(pos, moves.moves[i], undo);
@@ -333,8 +443,57 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 			score = static_cast<int16_t>(
 				-negamax(pos, depth - 1, static_cast<int16_t>(-beta), static_cast<int16_t>(-alpha), ply + 1, state, tt));
 		} else {
+			// How many plies this move gives up, and the conditions under which
+			// it's allowed to give up any. Each exclusion is a class of move the
+			// ordering's "late means unpromising" claim doesn't cover:
+			//
+			//  - Captures and promotions are excluded because they are ranked by
+			//    what they win, not by how good they turned out to be. A late
+			//    capture is late because MVV-LVA thinks it wins the least
+			//    material, which says nothing about whether it refutes the
+			//    position -- and with no SEE in the ordering, "late capture"
+			//    doesn't even mean "losing capture".
+			//  - Moves that give check are excluded because they force the
+			//    reply, so the subtree below them is narrow and cheap already;
+			//    reducing saves little and risks missing a forcing line, which
+			//    is the expensive kind of mistake.
+			//  - Nodes already in check are excluded wholesale: every move there
+			//    is a forced evasion, so there is no "late, therefore
+			//    unpromising" ordering claim to lean on in the first place.
+			int reduction = 0;
+			if (state.tuning.late_move_reductions && depth >= kLmrMinDepth && i >= kLmrFullDepthMoves &&
+			    is_quiet && !in_check && !is_in_check(pos, pos.side_to_move)) {
+				reduction = lmr_reduction(depth, i);
+				// Never reduced into quiescence. Depth 0 hands the move to a
+				// capture-only search, which would judge a quiet move by
+				// whatever tactics happen to be pending rather than by anything
+				// the move did -- and a quiet move is precisely the kind this
+				// heuristic is reducing.
+				reduction = std::min(reduction, depth - 2);
+			}
+
+			// Three searches, narrowing what each one has to establish:
+			//
+			//  1. The reduced scout. Cheap, and answers "does this beat alpha?"
+			//     for a move the ordering says shouldn't.
+			//  2. If it beats alpha, the reduction is the suspect, so the same
+			//     null-window question is asked again at full depth. Nothing
+			//     from the reduced search is kept.
+			//  3. If it still beats alpha and this node has a real window to
+			//     fill, PVS's own re-search establishes by how much.
+			//
+			// Steps 2 and 3 are separate on purpose. A reduced move that beats
+			// alpha usually stops beating it at full depth, and when it does,
+			// the null window is enough to prove that -- so the full-window
+			// search, which is the expensive one, is reached only by the moves
+			// that survive both cheaper questions.
 			score = static_cast<int16_t>(
-				-negamax(pos, depth - 1, static_cast<int16_t>(-alpha - 1), static_cast<int16_t>(-alpha), ply + 1, state, tt));
+				-negamax(pos, depth - 1 - reduction, static_cast<int16_t>(-alpha - 1), static_cast<int16_t>(-alpha),
+				         ply + 1, state, tt));
+			if (reduction > 0 && score > alpha) {
+				score = static_cast<int16_t>(
+					-negamax(pos, depth - 1, static_cast<int16_t>(-alpha - 1), static_cast<int16_t>(-alpha), ply + 1, state, tt));
+			}
 			if (score > alpha && score < beta) {
 				score = static_cast<int16_t>(
 					-negamax(pos, depth - 1, static_cast<int16_t>(-beta), static_cast<int16_t>(-alpha), ply + 1, state, tt));
@@ -355,7 +514,7 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 			// (history). Captures are excluded from both: MVV-LVA already ranks
 			// them above every quiet, so recording one would only take up a
 			// killer slot that a quiet move could use.
-			if (!is_capture(pos, moves.moves[i]) && moves.moves[i].promotion == NO_PROMOTION) {
+			if (is_quiet) {
 				state.killers[ply < kMaxPly ? ply : kMaxPly - 1].store(moves.moves[i]);
 				state.move_history.update(pos.side_to_move, moves.moves[i], depth);
 			}
@@ -376,13 +535,101 @@ int16_t negamax(Position& pos, int depth, int16_t alpha, int16_t beta, int ply, 
 	return best;
 }
 
+// Aspiration windows (REFERENCE.md 3.8 responsibility 9, Milestone 6).
+//
+// Alpha-beta's cost falls sharply as the window narrows -- a narrow window
+// means more nodes fail high or low immediately, and their subtrees are never
+// walked. Iterative deepening hands the search a free estimate of where the
+// answer will land: the score at depth d-1 is almost always within a few
+// centipawns of the score at depth d, because one extra ply rarely overturns a
+// position's assessment. So rather than searching depth d with the maximal
+// window and paying for its width, search it with a narrow window centred on
+// the previous score, and pay the re-search cost only when the guess was wrong.
+//
+// That trade is the entire heuristic, and it is a *speculation about the score*,
+// not about the tree: a search that returns a score inside its window has
+// searched exactly what a full-window search would have concluded. A score that
+// lands on or outside a bound proves only "at least this" or "at most this",
+// which is not an answer, so the window is widened and the depth searched again
+// from scratch. This is why aspiration windows cannot be wrong the way the
+// reductions below can be -- a failed guess costs nodes, never accuracy.
+//
+// Deliberately not done: `info` output on a fail-high/fail-low. A GUI would
+// display the intermediate bound (Stockfish sends "lowerbound"/"upperbound"),
+// which is a presentation feature, not a search one -- and this engine's `info`
+// lines already omit `pv` and `seldepth` (see the README's limitations).
+int16_t search_root(Position& pos, int depth, int16_t prev_score, SearchState& state,
+                    TranspositionTable& tt) {
+	int alpha = -kInfiniteScore;
+	int beta = kInfiniteScore;
+	int delta = kAspirationInitialDelta;
+
+	// Below kAspirationMinDepth there is nothing to save and no estimate worth
+	// trusting: the first few iterations cost microseconds, and their scores are
+	// still swinging by hundreds of centipawns as each new ply reveals a
+	// capture the last one couldn't see.
+	//
+	// A mate score is excluded for the same reason from the other end. Mate
+	// scores are enormous and jump by whole plies rather than centipawns, so a
+	// window of a few centipawns around one is guaranteed to fail, and each
+	// failure costs a full re-search of the depth.
+	if (state.tuning.aspiration_windows && depth >= kAspirationMinDepth && !is_mate_score(prev_score)) {
+		alpha = std::max(-static_cast<int>(kInfiniteScore), prev_score - delta);
+		beta = std::min(static_cast<int>(kInfiniteScore), prev_score + delta);
+	}
+
+	while (true) {
+		int16_t score = negamax(pos, depth, static_cast<int16_t>(alpha), static_cast<int16_t>(beta), 0, state, tt);
+
+		// An aborted search returns whatever it had reached, which is not a
+		// score to widen around -- the caller discards the whole iteration.
+		if (state.stop_requested.load(std::memory_order_relaxed)) return score;
+
+		// Inside the window: a real score, and the same one a full-window search
+		// would have returned.
+		if (score > alpha && score < beta) return score;
+
+		// Both bounds already maximal, so there is nothing left to widen and
+		// the identical search would be repeated forever. Unreachable in
+		// practice -- fail-soft cannot return a score outside +/-kMateScore --
+		// but this is the loop's termination guarantee, and an infinite loop
+		// here would hang the engine until the clock cut it off.
+		if (alpha <= -kInfiniteScore && beta >= kInfiniteScore) return score;
+
+		// Widening is one-sided: a fail-low says the answer is below alpha and
+		// tells us nothing new about beta, so only the failing bound moves. The
+		// re-search then still runs with a narrow window on the other side,
+		// which is the part worth keeping.
+		//
+		// The new bound is set from the returned score rather than from the old
+		// bound, which is what fail-soft buys here: the search reports how far
+		// past the bound it actually got, so the next window is placed around
+		// the real answer instead of guessing outward from a bound already
+		// known to be wrong.
+		if (score <= alpha) {
+			alpha = std::max(-static_cast<int>(kInfiniteScore), score - delta);
+		} else {
+			beta = std::min(static_cast<int>(kInfiniteScore), score + delta);
+		}
+
+		// Geometric, not linear. A position whose score has genuinely moved a
+		// long way -- a piece hanging that the last ply couldn't see -- would
+		// otherwise be chased outward in fixed steps, paying a re-search for
+		// each one. Growing by half each time bounds the number of re-searches
+		// at a handful even when the first guess is badly wrong.
+		delta += delta / 2;
+	}
+}
+
 }  // namespace
 
 SearchResult think(Position& pos, const SearchLimits& limits, TranspositionTable& tt,
                     HistoryTable& move_history, std::atomic<bool>& stop_requested,
-                    const InfoCallback& on_info, const PositionHistory& history) {
+                    const InfoCallback& on_info, const PositionHistory& history,
+                    const SearchTuning& tuning) {
 	tt.new_search();
 	SearchState state(stop_requested, move_history);
+	state.tuning = tuning;
 	state.history = history;  // the search pushes/pops its own moves on top of the played game
 	auto start = std::chrono::steady_clock::now();
 	state.deadline = start + std::chrono::milliseconds(time_budget_ms(limits, pos.side_to_move));
@@ -397,8 +644,14 @@ SearchResult think(Position& pos, const SearchLimits& limits, TranspositionTable
 	if (root_moves.count > 0) result.best_move = root_moves.moves[0];
 	if (root_moves.count == 0) return result;  // checkmate/stalemate: no move to make
 
+	// The previous iteration's score, which is the whole basis of the aspiration
+	// window below: iterative deepening's scores move very little from one depth
+	// to the next, so depth d-1's answer is a good guess at depth d's.
+	int16_t prev_score = 0;
+
 	for (int depth = 1; depth <= max_depth; depth++) {
-		int16_t score = negamax(pos, depth, static_cast<int16_t>(-kInfiniteScore), kInfiniteScore, 0, state, tt);
+		int16_t score = search_root(pos, depth, prev_score, state, tt);
+		prev_score = score;
 
 		// Depth 1 always gets its partial best move used (alpha-beta already
 		// updates root_best_move as soon as any move improves on -infinity),
