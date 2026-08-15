@@ -794,6 +794,26 @@ Three to five plies on every position — the largest single-milestone movement 
 the first one where the endgame column is not the apology. Both metrics are quoted because LMR is
 specifically the kind of change that can trade one for the other; here it won on both.
 
+**And, for the first time in the project, that was checked by playing games rather than inferred
+from node counts.** Both milestones were built from their committed commits with identical flags
+and played head to head under SPRT (H0: gain ≤ 0 Elo, H1: gain ≥ 10, α = β = 0.05), same book,
+same seed, same machine:
+
+```
+M6 (0d518a8) vs M5 (6cee021),  10+0.1,  163 games
+  +88 =52 -23   [0.699]   Elo +147 +/- 46
+  SPRT llr 2.95  ->  H1 accepted
+```
+
+The test reached its decision in 163 games. Self-play inflates the magnitude roughly 1.5-2x —
+both sides share every blind spot — so the honest reading is **on the order of +70 to +100 real
+Elo**, not +147. The direction and the significance are what transfer.
+
+That check mattered more than it looks. The same rig, pointed at an LMR constant that searched
+34-43% *fewer* nodes at fixed depth with an identical tactics score, measured it at 49.9% over 480
+games — worth nothing. Fewer nodes is not the same claim as better play, and this milestone is the
+first place in the project where the two have been told apart by evidence instead of argument.
+
 ### Movegen baseline
 
 The loop/bit-shift ray walker, unchanged since Milestone 1 — this is the number a future
@@ -946,11 +966,12 @@ document:
   confidence interval on a sample that size is wide, Lichess is still moving the number quickly,
   and it was recorded mid-milestone — the Milestone 6 work is part of what will move it next.
   Quote it with its date and game count or not at all.
-- **No SPRT match has been run.** The absolute rating above says what Dahlia is worth; it does
-  *not* say whether any individual change helped, because every other variable moves with it. That
-  is what SPRT is for, it remains un-run, and two constants in
-  [ADR 0006](docs/adr/0006-aspiration-lmr-constants.md) are explicitly parked until it happens. The
-  match tooling lives outside this repository.
+- **Only one SPRT match has been run.** Milestone 6 vs. Milestone 5 is measured
+  ([below](#milestone-6-end-to-end)); nothing before it is. The absolute rating says what Dahlia is
+  worth, but not whether any individual change helped, because every other variable moves with it —
+  that is what SPRT is for, and every milestone up to and including 5 is still unmeasured
+  individually. Two constants in [ADR 0006](docs/adr/0006-aspiration-lmr-constants.md) also remain
+  parked pending their own matches. The match tooling lives outside this repository.
 - **LMR can lose a move the engine would otherwise have found.** It is the one technique here
   allowed to be wrong: a reduced move that fails low is believed without verification. The
   re-search guarantees it cannot *promote* a bad move, and the tactics suite at a fixed time shows

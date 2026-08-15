@@ -200,3 +200,32 @@ the engine twice by hand into `tests/unit/test_research.cpp`, which runs in CI.
 exemption are both live questions that node counts cannot settle. Both should be
 re-measured as games once a rating signal exists — which, as of this milestone,
 it does: Dahlia plays rated games on Lichess.
+
+## Postscript (2026-08-15): the instrument now exists, and it settled one of them
+
+The constants above were parked because the project had no way to rank an inexact
+change. It now has one. `run.py ab` in the `dahlia-elo` repository plays two Dahlia
+builds head to head under SPRT, and the constants are exposed as CMake options
+(`DAHLIA_LMR_DIVISOR`, `DAHLIA_LMR_EXEMPT_KILLERS`) so each side of a match is a
+fixed, reproducible binary rather than a patched working tree. A build carrying
+non-default constants reports them in its UCI `id name`, so a misconfigured match
+is visible in the log instead of quietly producing a plausible number.
+
+**The milestone itself is confirmed.** M6 vs M5, both built from committed commits
+with identical flags: `+88 =52 -23` over 163 games, SPRT `llr 2.95 → H1 accepted`,
++147 ± 46 self-play Elo (discount 1.5–2x for shared blind spots). The three to five
+plies were real strength, not just a smaller tree.
+
+**The divisor is not an improvement.** `lmr_divisor=1.75` — 34–43% fewer nodes at
+fixed depth, identical tactics score, the most convincing-looking candidate in the
+whole sweep — measured **49.9% over 480 games**, with the sequential test drifting
+toward H0 rather than away from it. An earlier interrupted run put it at 46.0% over
+450 games. Neither run reached a verdict, and neither offers any reason to adopt it.
+
+That is the decision above vindicated rather than revised, and it is the entire
+argument of this ADR reduced to one number. The node-count table ranked 1.75 as the
+clear winner. Games rank it at nothing. Had this ADR adopted the cheaper constant on
+the strength of the table it built, it would have shipped a regression and cited a
+benchmark to justify it.
+
+**The killer-move exemption is still open** — its match has not run to a verdict.

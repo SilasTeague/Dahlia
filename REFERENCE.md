@@ -594,7 +594,7 @@ For every metric below: what it measures, how to measure it, what tooling produc
 | **Cache friendliness** | Data layout quality | `perf stat -e cache-misses,cache-references` (Linux) or Instruments on hot functions (movegen, TT probe) | Manual profiling session, documented in `docs/profiling.md` | Not CI-gated; used to justify layout decisions (e.g., TT entry packing, fancy-magic single-array layout) |
 | **Test coverage** | Signal for undertested code paths | `llvm-cov`/`gcov` report | CI job (informational) | Reported, not gated (see 1.6 rationale) |
 | **Elo, absolute** | What the engine is actually worth against real opposition | Rating on the Lichess ladder as a BOT account, over a stated number of games | Lichess (external) | The figure the README quotes. First recorded 2026-08-15: **1977 blitz** over 87 games (47W/7D/33L). A rating in motion, not a converged one — always quote it with the game count and date |
-| **Elo, relative** | Whether a specific change is a strength improvement | SPRT match vs. the previous version tag | `dahlia-elo` repository (`cutechess-cli`) | The better instrument for small changes, because it isolates one variable where the ladder cannot. Required before claiming a search/eval change is a "strength improvement" as opposed to a speed improvement — and, as of Milestone 6, the only way to settle the two open LMR constants |
+| **Elo, relative** | Whether a specific change is a strength improvement | SPRT self-play match vs. the previous version tag, via `run.py ab` | `dahlia-elo` repository (`cutechess-cli`) | The better instrument for small changes, because it isolates one variable where the ladder cannot. Required before calling a search/eval change a "strength improvement" rather than a speed improvement. First run 2026-08-15: **M6 vs M5, H1 accepted in 163 games, +147 ± 46 self-play Elo** (discount 1.5–2x for shared blind spots). Both sides must be built from committed commits with identical flags |
 
 **Rule of thumb:** a PR that touches search or movegen and claims a performance or strength win must cite at least one row from this table with before/after numbers. "Feels faster" is not a metric.
 
@@ -685,6 +685,17 @@ The replacement is not weaker, it is real. **Dahlia now plays rated games on Lic
 **Status (2026-08-15).** Complete. Both deliverables landed, the ADR is written (`docs/adr/0006-aspiration-lmr-constants.md`), and the re-search tests exist as `tests/unit/test_research.cpp`.
 
 Against the Milestone 5 tag, nodes to depth 7 fell 91.1% (opening), 90.2% (Kiwipete), 52.0% (K+P) and 90.9% (tactical), and depth reached in a fixed five seconds rose from 11 to 14, 10 to 14, 24 to 27, and 11 to 16 — three to five plies on every benchmark position, the largest single-milestone movement in the project. Both metrics were tracked, as this milestone required, precisely because LMR trades one for the other; here it happened to win on both.
+
+**Strength, measured (2026-08-15).** The milestone's revised success criterion is a measured rating gain, and it is met — by the relative instrument rather than the ladder. Both milestones were built from their committed commits (`0d518a8` and `6cee021`) with identical flags and played head to head under SPRT at 10+0.1, same book, same seed, same machine:
+
+```
+M6 vs M5, 163 games:  +88 =52 -23  [0.699]   Elo +147 +/- 46
+SPRT (elo0=0, elo1=10, alpha=beta=0.05): llr 2.95 -> H1 accepted
+```
+
+This is the first SPRT this project has ever run. Self-play inflates the magnitude roughly 1.5–2x, so the defensible claim is **on the order of +70 to +100 Elo**, not +147; the direction and the significance are what transfer. The absolute Lichess figure remains the other half of the criterion and moves on its own schedule, since the ladder measures a different thing (see the metrics catalog).
+
+The result is also the milestone's own methodological point, made in games. The same rig measured `lmr_divisor=1.75` — which searches 34–43% *fewer* nodes at fixed depth with an identical tactics score — at 49.9% over 480 games. Nodes-to-depth and strength came apart exactly where ADR 0006 predicted they would.
 
 Three things are worth recording as they actually happened rather than as they were planned:
 
