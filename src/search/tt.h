@@ -6,8 +6,8 @@
 
 #include "core/move.h"
 
-// Transposition table (REFERENCE.md 3.7): caches search results by Zobrist
-// key. Mate-distance score adjustment is the caller's job, not this module's.
+// Caches search results by Zobrist key; mate-distance score adjustment is the
+// caller's job, not this module's. See docs/search.md#transposition-table.
 namespace search {
 
 enum class Bound : uint8_t { Exact, LowerBound, UpperBound };

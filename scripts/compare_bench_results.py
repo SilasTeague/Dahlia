@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Read the benchmark history under bench/results/ and show how performance has
-moved (REFERENCE.md 3.11).
+moved (docs/REFERENCE.md 3.11).
 
 Two views:
 

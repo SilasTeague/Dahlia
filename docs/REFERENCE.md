@@ -2,6 +2,7 @@
 
 **Status:** Living document. Consult before implementing any major subsystem; update when a decision changes.
 **Scope:** This document is the single source of truth for architecture, conventions, testing, and benchmarking on Dahlia. Design discussions in chat/PRs should end with an update here, not live only in conversation history.
+**Location:** `docs/REFERENCE.md`. The rest of `docs/` derives from it — [architecture.md](architecture.md), [search.md](search.md), [evaluation.md](evaluation.md), [uci.md](uci.md), [testing.md](testing.md), [benchmarking.md](benchmarking.md), [results.md](results.md), [roadmap.md](roadmap.md), [limitations.md](limitations.md) — and are the readable entry points; this is the specification behind them.
 
 ---
 
@@ -41,8 +42,7 @@ Target layout (current repo is flat `src/`; migrating to this structure is Miles
 ```
 Dahlia/
 ├── CMakeLists.txt
-├── REFERENCE.md        # this document
-├── README.md                  # project pitch, build instructions, quick demo
+├── README.md                  # project pitch, build instructions, quick demo, links into docs/
 ├── LICENSE                     # MIT
 ├── .github/
 │   └── workflows/
@@ -73,8 +73,17 @@ Dahlia/
 │   ├── sprt/                      # SPRT match runner wrapper (cutechess-cli)
 │   └── tuner/                     # (future) evaluation tuning harness
 ├── docs/
-│   ├── architecture.md            # diagrams + prose overview, generated/maintained
+│   ├── REFERENCE.md               # this document — the specification
+│   ├── architecture.md            # module graph, data flow, structural properties
+│   ├── search.md                  # search subsystem in detail
+│   ├── evaluation.md              # evaluation subsystem in detail
 │   ├── uci.md                     # UCI options and behavior specific to Dahlia
+│   ├── testing.md                 # perft oracle, unit suites, CI matrix
+│   ├── benchmarking.md            # the harness, the history, why timing isn't in CI
+│   ├── results.md                 # every measured number, milestone by milestone
+│   ├── releases.md                # tag pipeline, static linking, deployments
+│   ├── roadmap.md                 # milestone status and stretch goals
+│   ├── limitations.md             # what the engine doesn't do
 │   └── adr/                       # architecture decision records, one file each
 └── scripts/
     ├── format.sh
@@ -133,16 +142,16 @@ Target standard: **C++20** (already in use). Use C++20 features deliberately, no
 
 ## 1.4 Documentation Standards
 
-- **Every public header** gets a file-level comment: one paragraph on what the module is responsible for and, critically, what it is *not* responsible for (ties back to the dependency graph in 1.1).
-- **Every public class/function** gets a comment only when the *why* isn't obvious from the signature and name. Do not restate the signature in prose (`/// Returns the square. @return the square` is banned). Document:
-  - Non-obvious invariants (e.g., "assumes `from` and `to` differ; UB otherwise").
-  - Complexity/performance characteristics when they matter to the caller (e.g., "O(1) via magic bitboard lookup, ~a single cache miss").
-  - Ownership/lifetime rules for anything non-value-type.
-- **No comments restating code.** This applies project-wide, matching general engineering practice: comment the non-obvious constraint, workaround, or invariant — not the mechanics.
-- **One line per comment, one sentence per line.** State the invariant/pitfall/rationale and stop — a REFERENCE.md section pointer (`(see 3.7)`) substitutes for re-explaining the reasoning inline. If a comment needs more than ~2 lines to land, it belongs in this document or an ADR, not the source file.
-- `docs/architecture.md` holds a living high-level diagram (can be ASCII/mermaid) of the module graph and data flow (UCI loop → search → movegen/eval → position mutation). Regenerate/update it whenever the module graph changes — treat a stale architecture doc as a bug.
-- **Architecture Decision Records** (`docs/adr/NNNN-title.md`) for any decision that was genuinely contested (e.g., "why 0x88 was rejected in favor of bitboards," "why Zobrist over incremental hash-by-piece-list"). Short format: Context / Decision / Consequences. This is one of the most recruiter-legible artifacts in the whole repo — it shows engineering judgment, not just output.
-- `README.md` is the front door: what Dahlia is, current Elo/strength estimate if known, how to build, how to run a UCI session, a link into this reference doc and into `docs/architecture.md`.
+**Decision (2026-08-16): explanation lives in `docs/`, not in the source.** The source files had accumulated multi-paragraph essays — `search.cpp` was 49% comment by line — which is a maintenance liability (prose drifts from code silently) and hides the code from anyone reading it. The rule now:
+
+- **80% of comments in a source file are one-liners, and there should not be many.** A comment states the non-obvious invariant, pitfall, or rationale and stops.
+- **Anything that needs a paragraph belongs in `docs/`**, with the source carrying a pointer at most (`// see docs/search.md`). Details about how a specific technique works, why a constant has the value it does, or what was measured go in the relevant `docs/` page or an ADR.
+- **No comments restating code.** Comment the non-obvious constraint, workaround, or invariant — not the mechanics.
+- **Every public header** gets a short file-level comment: what the module is responsible for and, where it clarifies the dependency graph in 1.1, what it is *not*. One to three lines.
+- **Every public class/function** gets a comment only when the *why* isn't obvious from the signature and name. Do not restate the signature in prose (`/// Returns the square. @return the square` is banned). Document non-obvious invariants, caller-relevant performance characteristics, and ownership/lifetime rules for anything non-value-type.
+- **Architecture Decision Records** (`docs/adr/NNNN-title.md`) for any decision that was genuinely contested. Short format: Context / Decision / Consequences. This is one of the most recruiter-legible artifacts in the whole repo — it shows engineering judgment, not just output.
+- `docs/architecture.md` holds a living diagram of the module graph and data flow (UCI loop → search → movegen/eval → position mutation). Treat a stale architecture doc as a bug.
+- `README.md` is the front door and stays short: what Dahlia is, where to play it, the current strength figure with its date and game count, how to build, how to run a UCI session, and an index into `docs/`. Narrative, measurements and history belong in `docs/`, not on the front page.
 
 ## 1.5 Git Conventions
 
@@ -593,7 +602,7 @@ For every metric below: what it measures, how to measure it, what tooling produc
 | **Binary size** | Build hygiene, LTO/inlining sanity check | `size`/`ls -la` on the release binary | CI artifact metadata | Informational; flag large unexplained jumps |
 | **Cache friendliness** | Data layout quality | `perf stat -e cache-misses,cache-references` (Linux) or Instruments on hot functions (movegen, TT probe) | Manual profiling session, documented in `docs/profiling.md` | Not CI-gated; used to justify layout decisions (e.g., TT entry packing, fancy-magic single-array layout) |
 | **Test coverage** | Signal for undertested code paths | `llvm-cov`/`gcov` report | CI job (informational) | Reported, not gated (see 1.6 rationale) |
-| **Elo, absolute** | What the engine is actually worth against real opposition | Rating on the Lichess ladder as a BOT account, over a stated number of games | Lichess (external) | The figure the README quotes. First recorded 2026-08-15: **1977 blitz** over 87 games (47W/7D/33L). A rating in motion, not a converged one — always quote it with the game count and date |
+| **Elo, absolute** | What the engine is actually worth against real opposition | Rating on the Lichess ladder as a BOT account ([@DahliaBot](https://lichess.org/@/DahliaBot)), over a stated number of games | Lichess (external) | The figure the README quotes. First recorded 2026-08-15: **1977 blitz** over 87 games (47W/7D/33L) on `v2.1`. Current 2026-08-16: **2108 blitz** over 147 games (86W/16D/45L), sample spanning the `v2.2` deployment. A rating in motion, not a converged one — always quote it with the game count and date |
 | **Elo, relative** | Whether a specific change is a strength improvement | SPRT self-play match vs. the previous version tag, via `run.py ab` | `dahlia-elo` repository (`cutechess-cli`) | The better instrument for small changes, because it isolates one variable where the ladder cannot. Required before calling a search/eval change a "strength improvement" rather than a speed improvement. First run 2026-08-15: **M6 vs M5, H1 accepted in 163 games, +147 ± 46 self-play Elo** (discount 1.5–2x for shared blind spots). Both sides must be built from committed commits with identical flags |
 
 **Rule of thumb:** a PR that touches search or movegen and claims a performance or strength win must cite at least one row from this table with before/after numbers. "Feels faster" is not a metric.
@@ -695,13 +704,15 @@ SPRT (elo0=0, elo1=10, alpha=beta=0.05): llr 2.95 -> H1 accepted
 
 This is the first SPRT this project has ever run. Self-play inflates the magnitude roughly 1.5–2x, so the defensible claim is **on the order of +70 to +100 Elo**, not +147; the direction and the significance are what transfer.
 
-**The Lichess half is not met, and the criterion was amended rather than waved through.** As originally revised, this milestone required a rating gain *on the ladder*; what has actually been produced is a relative SPRT result, which is a different instrument. Accepting it as though it satisfied the stated criterion would be the same goalpost-moving the criterion was rewritten to stop — so the criterion now names both instruments explicitly, and this milestone is complete on the first and pending on the second. The Lichess bot still runs the Milestone 5 build, which means the 1928/1977 blitz figures measure the *old* engine; the ladder cannot say anything about Milestone 6 until `v2.2` is tagged and deployed.
+**The Lichess half, resolved 2026-08-16.** As originally revised, this milestone required a rating gain *on the ladder* as well as an SPRT result, and at the time of writing only the SPRT half existed — the bot was still running the Milestone 5 build, so the 1977 figure measured the *old* engine. `v2.2` has since been tagged and deployed, and the account now reads **2108 blitz over 147 games** (86W/16D/45L) against 1977 over 87 games on `v2.1`.
+
+Both instruments therefore report a gain and the criterion is met, with one caveat stated rather than glossed: the 147-game sample *spans* the deployment rather than starting from it, so the ladder figure is not a clean A/B between the two builds. The controlled comparison is the SPRT match above; the ladder number is what the engine is worth, not what the change was worth.
 
 The result is also the milestone's own methodological point, made in games. The same rig measured `lmr_divisor=1.75` — which searches 34–43% *fewer* nodes at fixed depth with an identical tactics score — at 49.9% over 480 games. Nodes-to-depth and strength came apart exactly where ADR 0006 predicted they would.
 
 Three things are worth recording as they actually happened rather than as they were planned:
 
-- **The milestone's own diagnosis was wrong at first, and the correction is the interesting part.** The K+P zugzwang regression test broke, and LMR was the obvious suspect — it is the inexact technique, and the position is the one the project already knows is fragile. It was not LMR. *Aspiration windows* moved the win from depth 17 to depth 18, and they did so without being inexact at all: rebuilt with the TT's score cutoffs disabled, an aspirating build and a full-window build return the identical score (+262) at depth 17. What a narrow window changes is what lands in the table — bounds where a wide window stored exact scores — so the engine reads less effective depth back out of it. That is the same effect [3.8](#38-search-searchsearchh--searchsearchcpp) recorded for PVS in this same position at Milestone 5, met a second time and now understood as a general property of every narrowing technique in the engine rather than a quirk of one.
+- **The milestone's own diagnosis was wrong at first, and the correction is the interesting part.** The K+P zugzwang regression test broke, and LMR was the obvious suspect — it is the inexact technique, and the position is the one the project already knows is fragile. It was not LMR. *Aspiration windows* moved the win from depth 17 to depth 18, and they did so without being inexact at all: rebuilt with the TT's score cutoffs disabled, an aspirating build and a full-window build return the identical score (+262) at depth 17. What a narrow window changes is what lands in the table — bounds where a wide window stored exact scores — so the engine reads less effective depth back out of it. That is the same effect [3.8](#38-search-search) recorded for PVS in this same position at Milestone 5, met a second time and now understood as a general property of every narrowing technique in the engine rather than a quirk of one.
 - **`SearchTuning` exists because of that diagnosis.** Answering "is the window exact?" required holding still not just LMR but null-move and delta pruning, both of which read the current window before deciding what to skip and so change their answers when one narrows. `SearchTuning::exact()` switches off everything inexact, and it converts a verification Milestone 5 performed by rebuilding the engine twice by hand into a test that runs in CI.
 - **The tactics suite's depth moved, and its cross-milestone comparison is retired.** At a fixed depth 7 the suite fell to 13/18 from Milestone 5's 15/18. That is not a strength regression: under a *time* limit, which is how the engine is used, the same suite scores 15/18 at any movetime from 200 ms up — unchanged. LMR simply makes a nominal ply mean less tree, so the suite's depth was raised to 10 (where it again solves everything it used to, in under a second) and its claim is now "the same three positions fail, and they fail on evaluation" rather than a solve count indexed to depth 7.
 
@@ -713,6 +724,12 @@ Two constants were left open at the time of writing — the LMR divisor (2.25 vs
 - **Benchmarks:** consolidated report across all prior milestones (the "engine's performance history" chart).
 - **Tests:** full CI matrix green (multi-compiler, sanitizers, perft, unit, UCI protocol).
 - **Success criteria:** a stranger can clone the repo, read the README, build it, load it into a GUI, and understand — from `docs/` and ADRs alone — every major design decision and why it was made.
+
+**Status (2026-08-16).** Documentation deliverables complete. `docs/architecture.md` exists, `REFERENCE.md` moved into `docs/`, and the narrative that had accumulated in the README — every milestone's measurements, the subsystem explanations, the limitations list — moved to dedicated pages under `docs/`, leaving the README a front door of about 130 lines instead of 1,050. The same pass applied 1.4's rewritten comment rule to `src/`, `tests/` and `bench/`: multi-paragraph comment blocks were cut to one-liners and their content relocated to the page that now owns it.
+
+Also landed: the complete UCI option set (`Hash`, `Move Overhead`), a `LICENSE` file to back the badge that had been pointing at this document's Appendix C.1, and the absolute strength figure (see Milestone 6 above).
+
+Still open: the historical benchmark *chart* — `scripts/compare_bench_results.py --history` renders the series as text, but nothing generates a plot — and a demo GIF.
 
 ### Beyond Milestone 7 (explicitly future/stretch)
 
@@ -757,6 +774,7 @@ Record contested decisions here as they're made, newest first. Full-form ADRs fo
 
 | Date | Decision | Summary | ADR |
 |---|---|---|---|
+| 2026-08-16 | Explanation lives in `docs/`, not in source comments: 80% of comments are one-liners, anything needing a paragraph moves to a `docs/` page or an ADR. `REFERENCE.md` moves to `docs/`, and the README becomes a short front door with the narrative relocated to `docs/results.md` and friends | See 1.4, Milestone 7 | — (settled here, no separate ADR needed) |
 | 2026-08-15 | Milestone success criteria stop requiring SPRT and require a measured Lichess rating instead; the SPRT rig stays in `dahlia-elo` and remains the instrument for small tuning comparisons | See Milestone 6 | — (settled here, no separate ADR needed) |
 | 2026-08-15 | Aspiration window half-width 25 cp from depth 4, one-sided geometric widening; LMR reduction `0.75 + ln(d)·ln(m)/2.25` from depth 3 after 3 full-depth moves, with four conventional extra guards measured and rejected | See 3.8, Milestone 6 | `docs/adr/0006-aspiration-lmr-constants.md` |
 | 2026-08-15 | Every inexact search technique gets a runtime switch (`SearchTuning`), so "safe mode" comparisons are a CI test rather than a hand-rebuilt experiment; the switches are test-only and no UCI command reaches them | See 3.8, Milestone 6 | `docs/adr/0006-aspiration-lmr-constants.md` |
@@ -781,7 +799,7 @@ Record contested decisions here as they're made, newest first. Full-form ADRs fo
 
 | Topic | Decision |
 |---|---|
-| License | **MIT** |
+| License | **MIT** — full text in `LICENSE` at the repository root (added 2026-08-16) |
 | Test framework | **Catch2** |
 | Benchmark framework | **Google Benchmark** |
 | CI compiler/OS matrix | **GCC + Clang on Linux + macOS** (no Windows/MSVC leg) |

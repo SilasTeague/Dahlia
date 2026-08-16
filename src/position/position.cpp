@@ -325,11 +325,8 @@ void make_null_move(Position& pos, StateInfo& undo) {
 
 	uint64_t& key = pos.zobrist_key;
 
-	// The en passant square must go, and its key with it. A null move is a
-	// pass, and the right to capture en passant expires the moment its owner
-	// declines to use it -- leaving the square set would let the *opponent*
-	// capture en passant on the following move, which is not a rule of chess
-	// and, worse, would give two different positions the same Zobrist key.
+	// The right to capture en passant expires the moment its owner declines it,
+	// and leaving the square set would give two positions the same Zobrist key.
 	if (pos.en_passant_square != NULL_SQUARE) {
 		key ^= zobrist::tables.en_passant_file[pos.en_passant_square % 8];
 		pos.en_passant_square = NULL_SQUARE;
@@ -340,15 +337,11 @@ void make_null_move(Position& pos, StateInfo& undo) {
 	pos.side_to_move = static_cast<Color>(pos.side_to_move ^ 1);
 	key ^= zobrist::tables.side_to_move;
 
-	// No pawn moved and nothing was captured, so the halfmove clock advances
-	// like it would after any other quiet move. It is what bounds the
-	// repetition scan (position/history.cpp), so it has to stay meaningful.
+	// Advances like any quiet move; it bounds the repetition scan (history.cpp).
 	pos.halfmove_clock++;
 
-	// Deliberately no recompute_aggregates(): not one bit of the occupancy
-	// changed. That is the entire appeal of the null move -- it costs a side
-	// flip and two XORs, which is why searching one to prove a position is
-	// already winning is cheap enough to be worth doing.
+	// No recompute_aggregates(): not one bit of the occupancy changed, which is
+	// the entire appeal of the null move.
 }
 
 void unmake_null_move(Position& pos, const StateInfo& undo) {

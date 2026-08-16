@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Wrap raw Google Benchmark JSON dumps into Dahlia's bench history schema
-(see REFERENCE.md 3.11). Extend the "benchmarks" section further as perft
+(see docs/REFERENCE.md 3.11). Extend the "benchmarks" section further as perft
 timing / TT metrics come online.
 
 When the suite is run with --benchmark_repetitions, Google Benchmark emits
 per-repetition rows *plus* mean/median/stddev aggregate rows. Only the median
-is recorded here: REFERENCE.md 3.11's noise discipline asks for a median over
+is recorded here: docs/REFERENCE.md 3.11's noise discipline asks for a median over
 repetitions, and keeping the raw rows would make history files grow with the
 repetition count for no analytical gain.
 """
@@ -24,7 +24,7 @@ def git_short_hash() -> str:
 def cpu_model() -> str:
 	"""A human-identifiable CPU string, not just the architecture.
 
-	REFERENCE.md 3.11 requires the CPU in every result file so cross-machine
+	docs/REFERENCE.md 3.11 requires the CPU in every result file so cross-machine
 	noise stays explainable after the fact -- which matters more now that runs
 	come from both a dev laptop and a CI runner. platform.processor() returns
 	only the bare machine string ("x86_64", "arm") on both Linux and macOS, so

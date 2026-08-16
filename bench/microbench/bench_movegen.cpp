@@ -4,10 +4,9 @@
 #include "movegen/attacks.h"
 #include "movegen/movegen.h"
 
-// Milestone 1 baseline (REFERENCE.md 3.11 / Part IV): sliding-attack lookup
-// latency and pseudo-legal move generation speed, using the loop/bit-shift
-// ray walker (magic bitboards intentionally deferred, see REFERENCE.md 3.3).
-// This is the number a future magic-bitboard swap gets measured against.
+// Sliding-attack lookup latency and pseudo-legal generation speed for the
+// loop/bit-shift ray walker -- the baseline a future magic-bitboard swap gets
+// measured against (docs/results.md#movegen-baseline).
 
 namespace {
 

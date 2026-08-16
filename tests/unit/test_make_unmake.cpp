@@ -6,13 +6,9 @@
 #include "position/position.h"
 #include "position/zobrist.h"
 
-// Property test per REFERENCE.md 1.6/3.4: make_move followed by unmake_move
-// must restore the exact prior position, including the incrementally
-// maintained Zobrist key. Also checks make_move's incremental key update
-// always agrees with a from-scratch recomputation (the correctness oracle
-// for the incremental update, per 3.4's "Zobrist incremental key update...
-// with a unit test asserting the incremental key always matches a
-// from-scratch computation").
+// make_move followed by unmake_move must restore the position exactly, Zobrist
+// key included, and the incremental key must always agree with a from-scratch
+// recomputation -- the correctness oracle for the incremental update.
 
 namespace {
 

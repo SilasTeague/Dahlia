@@ -9,10 +9,9 @@
 #include "position/position.h"
 #include "uci/uci.h"
 
-// Scripted UCI protocol tests (REFERENCE.md 3.10): feed commands through an
-// istream, assert well-formed responses on the ostream. `go` now runs
-// Milestone 3's real (deterministic) alpha-beta search, so bestmove output
-// is checked for legality/well-formedness rather than a specific move.
+// Commands are fed through an istream and responses asserted on the ostream.
+// `go` runs the real search, so bestmove is checked for well-formedness rather
+// than for a specific move. See docs/uci.md.
 
 namespace {
 
@@ -79,10 +78,8 @@ TEST_CASE("uci: declares the Move Overhead option", "[uci]") {
 }
 
 TEST_CASE("uci: multi-word setoption names are matched whole", "[uci]") {
-	// "Move Overhead" arrives as two tokens; a parser that joined them without
-	// the space (or stopped at the first) would silently ignore this, so the
-	// observable effect -- a shorter search -- is what's checked. 400 ms of
-	// overhead against a 500 ms movetime leaves ~100 ms of search.
+	// Two tokens; a parser that joined them wrong would silently ignore this, so
+	// the observable effect is checked: 400 ms of overhead off a 500 ms movetime.
 	std::istringstream in(
 		"setoption name Move Overhead value 400\nposition startpos\ngo movetime 500\nquit\n");
 	std::ostringstream out;
@@ -187,11 +184,9 @@ TEST_CASE("uci: ucinewgame resets to the start position", "[uci]") {
 	CHECK(any_line_starts_with(lines_of(out.str()), "bestmove "));
 }
 
-// Async `go`/`stop` tests (REFERENCE.md 3.8/3.9/3.10): `go` now runs on its
-// own thread so the reader loop keeps consuming lines while a search is in
-// flight. `go infinite` never self-terminates (no depth/time cap), so these
-// tests are deterministic: the engine cannot emit `bestmove` until `stop` or
-// `quit` reaches it, regardless of how the OS schedules the search thread.
+// `go infinite` never self-terminates, so these are deterministic: no `bestmove`
+// can be emitted until `stop` or `quit` reaches the engine, however the OS
+// schedules the search thread.
 
 TEST_CASE("uci: go infinite runs until stop, emitting exactly one bestmove", "[uci]") {
 	std::istringstream in("position startpos\ngo infinite\nstop\nquit\n");
@@ -235,19 +230,15 @@ TEST_CASE("uci: a second go while a search is in flight is rejected, not queued"
 	std::ostringstream out;
 	run_uci_loop(in, out);
 
-	// A queued second `go` would still be running when `quit` arrives, and
-	// `quit` stops+joins unconditionally -- so queueing would also produce a
-	// second bestmove here. Exactly one proves the second `go` never ran.
+	// A queued second `go` would still be running when `quit` arrives, and `quit`
+	// stops+joins unconditionally -- so exactly one bestmove proves it never ran.
 	CHECK(count_lines_starting_with(lines_of(out.str()), "bestmove ") == 1);
 }
 
 TEST_CASE("uci: engine accepts a new go after a prior search completes", "[uci]") {
-	// Two independent sessions rather than two `go`s in one script: after
-	// `stop`, nothing in the UCI protocol lets a scripted test block until
-	// the search thread has actually finished before sending the next `go`
-	// (a real GUI would simply wait to read `bestmove` first). Ending each
-	// session without `quit` forces ~Engine to join before returning, which
-	// is the deterministic stand-in for that wait.
+	// Two sessions rather than two `go`s: nothing in UCI lets a scripted test
+	// block until the search thread finishes, and ending a session without `quit`
+	// forces ~Engine to join, which is the deterministic stand-in for that wait.
 	std::istringstream in1("position startpos\ngo infinite\nstop\n");
 	std::ostringstream out1;
 	run_uci_loop(in1, out1);

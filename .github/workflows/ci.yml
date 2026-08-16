@@ -17,7 +17,7 @@ jobs:
         exclude:
           # Apple Clang is macOS's native toolchain; Homebrew GCC is slow to
           # install and adds little over the Linux GCC leg, so it's skipped
-          # to keep CI fast -- REFERENCE.md 2.2 asks for two distinct
+          # to keep CI fast -- docs/REFERENCE.md 2.2 asks for two distinct
           # compilers being exercised, not every OS x compiler combination.
           - os: macos-latest
             compiler: gcc
@@ -72,6 +72,6 @@ jobs:
       # Async search (search thread vs. the UCI stdin-reader thread) is the
       # first place Dahlia has real concurrency, and the UCI protocol tests
       # exercise exactly that boundary (stop/isready/quit racing a search) --
-      # see REFERENCE.md 3.8's SMP note and docs/adr/0003-async-search-stop.md.
+      # see docs/REFERENCE.md 3.8's SMP note and docs/adr/0003-async-search-stop.md.
       - name: Test
         run: ctest --preset debug-tsan --output-on-failure

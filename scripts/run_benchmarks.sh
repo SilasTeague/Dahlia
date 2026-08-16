@@ -8,7 +8,7 @@
 # the new history file alongside the change. Timing numbers are only comparable
 # within one machine, so run this on the same machine every time -- the script
 # records the CPU, compiler, and flags in every file, and the comparison warns
-# loudly if any of them moved between runs (REFERENCE.md 3.11).
+# loudly if any of them moved between runs (docs/REFERENCE.md 3.11).
 #
 # To see the whole arc rather than just the last step:
 #
