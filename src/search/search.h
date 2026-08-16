@@ -45,6 +45,71 @@ struct SearchResult {
 	uint64_t nodes = 0;
 };
 
+// Switches for the search's inexact machinery, all defaulting to on.
+// Deliberately not part of SearchLimits: those are the GUI's instructions,
+// while these are the engine's own settings, and no UCI command sets them.
+//
+// They exist because Milestone 6 asks for re-search correctness tests against a
+// "safe mode" search, and that only means something if the safe search is
+// reachable from the same build as the real one. `exact()` below is that safe
+// mode. tests/unit/test_research.cpp is the only caller that changes any of
+// these; nothing in src/ does.
+//
+// The line these switches draw is between the parts of the search that are
+// *exact* -- alpha-beta itself, PVS, iterative deepening, quiescence's stand-pat
+// -- and the parts that are allowed to be wrong in exchange for speed. Only the
+// second kind is switchable, and the list is short enough to state: aspiration
+// windows and the transposition table are exact in their own arithmetic but
+// change results through the table; late move reductions, null-move pruning and
+// delta pruning can each discard a line that mattered.
+struct SearchTuning {
+	bool aspiration_windows = true;
+	bool late_move_reductions = true;
+
+	// Null-move pruning (search.cpp) and quiescence's delta pruning. Both are
+	// heuristics that read the current window -- null-move searches against
+	// beta, delta pruning discards captures that cannot reach alpha -- so both
+	// prune differently when a window narrows, and both can prune something
+	// real. They are the reason a narrower window changes this engine's scores
+	// even with the table's cutoffs disabled, and therefore the reason they
+	// need switches at all: without them, "does the aspiration window change
+	// the answer?" cannot be asked in isolation.
+	bool null_move_pruning = true;
+	bool delta_pruning = true;
+
+	// Whether a transposition table hit may cut a search short, as opposed to
+	// only supplying a move to try first. Off, the table still fills, still
+	// orders moves, and still costs what it costs -- it just stops answering
+	// questions on the search's behalf.
+	//
+	// This is here because "exact" is not the same claim as "returns the same
+	// score", and the difference is entirely the table. A narrow-window search
+	// stores *bounds* where a full-window search would have stored exact
+	// scores; both are correct, but a later probe can only cut off on the
+	// second kind, so the engine reads more effective depth out of a table
+	// filled by wide windows than by narrow ones. Every narrowing technique in
+	// this engine therefore changes results through the table while changing
+	// nothing about its own arithmetic.
+	//
+	// Milestone 5 established that for PVS by rebuilding the engine twice by
+	// hand and comparing. This switch makes the same verification a test that
+	// runs in CI -- see tests/unit/test_research.cpp.
+	bool transposition_cutoffs = true;
+
+	// Every inexact technique off: what is left is alpha-beta with PVS,
+	// quiescence and move ordering, none of which may change a score. Slow by
+	// design -- this is a reference to compare against, not a way to play.
+	static SearchTuning exact() {
+		SearchTuning tuning;
+		tuning.aspiration_windows = false;
+		tuning.late_move_reductions = false;
+		tuning.null_move_pruning = false;
+		tuning.delta_pruning = false;
+		tuning.transposition_cutoffs = false;
+		return tuning;
+	}
+};
+
 // Score magnitude reserved for mate detection; a returned score is a "mate
 // in N plies" score once it's within kMaxPly of kMateScore (see
 // is_mate_score in search.cpp). Kept well below int16_t's range so ply
@@ -79,9 +144,14 @@ using InfoCallback = std::function<void(const std::string& line)>;
 // -- means "the game starts at `pos`", which only costs the search the
 // repetitions it can't see anyway. think() copies it and leaves the caller's
 // copy untouched.
+//
+// `tuning` switches off the heuristics that are allowed to be wrong (see
+// SearchTuning); the default -- everything on -- is what the engine plays with,
+// and only the tests pass anything else.
 SearchResult think(Position& pos, const SearchLimits& limits, TranspositionTable& tt,
                     HistoryTable& move_history, std::atomic<bool>& stop_requested,
                     const InfoCallback& on_info = nullptr,
-                    const PositionHistory& history = PositionHistory{});
+                    const PositionHistory& history = PositionHistory{},
+                    const SearchTuning& tuning = SearchTuning{});
 
 }  // namespace search

@@ -81,13 +81,27 @@ struct NodeBudget {
 // guard switches the heuristic off there entirely. The one position null-move
 // pruning cannot help is the one it would otherwise get wrong -- see
 // test_nullmove.cpp.
+//
+// Milestone 6's late move reductions then took 44-81% off again (21,337 /
+// 136,030 / 1,330 / 25,809 before them), the largest single-change reduction in
+// the project. Unlike every step above it, this one is *not* a pure efficiency
+// change and the table records that honestly: the endgame's score moved by two
+// centipawns (110 -> 108) and the opening changed its mind between two moves it
+// scores identically (g1f3 -> d2d4, both 33). LMR searches unpromising moves
+// shallowly and accepts a fail-low without verifying it, so it is allowed to
+// reach a different conclusion -- which is exactly why the conclusions live in
+// their own test below rather than being folded into the node count.
+//
+// Aspiration windows, landing alongside them, are the opposite kind of change
+// and cost nothing here: at depth 5 they are below kAspirationMinDepth and
+// never engage at all.
 constexpr NodeBudget kExpected[] = {
-	{"opening", "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 5, 21337, 33, "g1f3"},
+	{"opening", "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 5, 4260, 33, "d2d4"},
 	{"middlegame (Kiwipete)",
-	 "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 5, 136030, -27, "e2a6"},
-	{"endgame (K+P)", "8/8/4k3/8/8/4K3/4P3/8 w - - 0 1", 5, 1330, 110, "e3e4"},
+	 "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 5, 25959, -27, "e2a6"},
+	{"endgame (K+P)", "8/8/4k3/8/8/4K3/4P3/8 w - - 0 1", 5, 742, 108, "e3e4"},
 	{"tactical (WAC.019)",
-	 "r1bqrbn1/pp3ppp/2np4/2p5/2B1P3/2N2N2/PPP2PPP/R1BQR1K1 w - - 0 1", 5, 25809, 328, "c4f7"},
+	 "r1bqrbn1/pp3ppp/2np4/2p5/2B1P3/2N2N2/PPP2PPP/R1BQR1K1 w - - 0 1", 5, 7510, 328, "c4f7"},
 };
 
 search::SearchResult search_at_depth(const char* fen, int depth) {
@@ -134,6 +148,12 @@ TEST_CASE("search: fixed-depth node counts match the recorded baseline", "[searc
 // dearer; a score or best move that moves is a search that changed its mind,
 // and only an evaluation change or a heuristic that prunes something real
 // should be able to do that.
+//
+// Since Milestone 6 the engine contains one heuristic of exactly that second
+// kind -- late move reductions -- so this test is no longer expected to hold
+// across every search change, only to make a changed conclusion impossible to
+// land by accident. An LMR tuning change that moves a score here is legitimate;
+// it just has to be argued for rather than absorbed silently into a node count.
 TEST_CASE("search: fixed-depth conclusions match the recorded baseline", "[search][nodes]") {
 	for (const NodeBudget& expected : kExpected) {
 		INFO("position: " << expected.name << " at depth " << expected.depth

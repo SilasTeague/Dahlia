@@ -6,8 +6,13 @@
 
 A UCI-compatible chess engine written from scratch in modern C++ — bitboard move generation,
 Zobrist-hashed make/unmake, an iterative-deepening principal-variation search with a transposition
-table, tapered evaluation and null-move pruning, and an asynchronous UCI loop that stays
-responsive mid-search.
+table, tapered evaluation, null-move pruning, aspiration windows and late move reductions, and an
+asynchronous UCI loop that stays responsive mid-search.
+
+**Rated 1977 blitz on Lichess** as of 2026-08-15, over 87 games (35 W / 6 D / 23 L). That is a
+rating still in motion over a small sample rather than a converged one, and it is quoted with its
+date and game count for exactly that reason — see
+[current limitations](#current-limitations).
 
 ### ▶ [Play it at silasteague.com/chess](https://silasteague.com/chess)
 
@@ -87,7 +92,7 @@ util  ←  core  ←  movegen  ←  position  ←  search  ←  uci
 | `movegen/` | attack tables, ray-walk sliding attacks, pseudo-legal + legal generation | knowing about search or eval |
 | `position/` | board state, FEN in/out, make/unmake, Zobrist hashing | scoring or choosing moves |
 | `eval/` | material + tapered piece-square tables (v1) | anything search-dependent |
-| `search/` | negamax alpha-beta with PVS, iterative deepening, transposition table, move ordering, quiescence, null-move pruning, time budget | I/O of any kind |
+| `search/` | negamax alpha-beta with PVS, iterative deepening, transposition table, move ordering, quiescence, null-move pruning, aspiration windows, late move reductions, time budget | I/O of any kind |
 | `uci/` | protocol loop, search thread ownership, output serialization | being depended on by anything |
 
 A few properties worth calling out:
@@ -109,6 +114,14 @@ supplies one that funnels every line through a single mutex. This is what makes 
 `info` output from the search thread and `readyok`/`bestmove` from the reader thread safe to
 interleave without tearing a line — a hard requirement, since a GUI that receives a torn line
 hangs.
+
+**Every inexact technique has an off switch.** `search::SearchTuning` gates late move reductions,
+null-move pruning, quiescence's delta pruning, aspiration windows, and the transposition table's
+score cutoffs, and `SearchTuning::exact()` turns all of them off at once. Nothing in `src/` ever
+sets them and no UCI command reaches them — they exist so that "does this technique change the
+answer?" is a question the *test suite* can ask, rather than one answered by rebuilding the engine
+twice by hand and comparing, which is how Milestone 5 had to do it
+([ADR 0006](docs/adr/0006-aspiration-lmr-constants.md)).
 
 **`go` runs on its own thread.** Before this, `stop` was a documented no-op and `go infinite`
 was unusable, because the reader loop was blocked for the entire duration of a search. The
@@ -255,7 +268,7 @@ time budget; run them explicitly with:
 
 ### Unit and regression tests
 
-36 Catch2 test cases across eight files:
+90 Catch2 test cases across 15 files:
 
 - **FEN** — parse, serialize, and round-trip, including partial castling rights and en passant.
 - **make/unmake** — a round-trip property test asserting the position *and* Zobrist key are
@@ -267,6 +280,16 @@ time budget; run them explicitly with:
   that a depth-1 search would grab.
 - **Transposition table** — probe/store round-trip, verified-key misses, depth-preferred
   replacement, and generation-based aging.
+- **Re-search correctness** ([`test_research.cpp`](tests/unit/test_research.cpp)) — the
+  Milestone 6 techniques against a "safe mode" search in the same binary
+  (`SearchTuning::exact()`, every inexact technique switched off). Two claims, deliberately
+  different in strength: aspiration windows must return the *identical* score a full-window
+  search would, while LMR must merely never promote a move on reduced-depth evidence — a mate,
+  and a free piece, must both survive the reductions. Writing the second as an equality test
+  would have been asserting something LMR doesn't promise.
+- **Node counts and conclusions** ([`test_search_nodes.cpp`](tests/unit/test_search_nodes.cpp)) —
+  a golden-file table of nodes, score, and best move at a fixed depth, split into two test cases
+  so that a search which got *cheaper* and a search which changed its *mind* fail separately.
 - **UCI protocol** — scripted command sequences over an injected `istream`/`ostream`, including
   the concurrency cases: `isready` answered while a search is running, `go infinite` terminated
   by `stop` with exactly one `bestmove`, `quit` mid-search leaking no thread, and a second `go`
@@ -350,6 +373,12 @@ An intentional search improvement *fails* that test, and the fix is to update th
 same PR — so the diff on those values becomes the regression report, showing exactly what the
 change did to the tree, reviewable in place. It's the same pattern as the perft reference
 values, for the same reason ([ADR 0004](docs/adr/0004-node-counts-in-ci-timing-local.md)).
+
+The table pins the score and best move alongside the node count, in a *separate* test case, so
+that a search which got cheaper and a search which changed its mind fail apart from each other.
+Since Milestone 6 the engine contains one technique that is allowed to do the second — late move
+reductions — so that half of the table is no longer expected to hold across every search change.
+It still makes a changed conclusion impossible to land by accident, which is what it was for.
 
 Those counts are specified at a fixed 16 MB hash: node count legitimately falls as the
 transposition table grows (164,722 nodes at 1 MB down to 161,277 at 16 MB, flat from there to
@@ -648,6 +677,150 @@ it lost three plies of depth in fixed time across the milestone — two to the e
 more expensive, one to PVS — and null-move pruning could only give one back, because the guard
 correctly refuses to help there. Every other position gained one to three plies.
 
+### Aspiration windows (Milestone 6)
+
+Iterative deepening produces a free estimate of where the next iteration's score will land: one
+extra ply rarely overturns a position's assessment. So instead of searching depth *d* with the
+maximal window and paying for its width, search it with a narrow window centred on depth *d−1*'s
+score — 25 centipawns either side — and pay a re-search only when the guess was wrong.
+
+The window is **exact**. A score that lands inside it is the same score a full-window search would
+have returned; a score that reaches a bound proves only "at least this" or "at most this", which
+is not an answer, so the window widens and the depth is searched again. A failed guess costs
+nodes, never accuracy.
+
+Measured alone, at depth 10 and before LMR landed, it was **a wash** — ±5% on every position,
+sometimes negative. That is not a surprise in hindsight: PVS already searches every root move but
+the first with a null window, so the only subtree an aspiration window narrows is the first
+move's, and the re-searches ate the difference. It only starts paying once the engine is searching
+deep enough for the saving to compound, which is exactly what the other half of this milestone
+provided. Re-measured at depth 14 with LMR on:
+
+| δ (half-width) | Opening | Middlegame | Endgame | Tactical |
+|---|---:|---:|---:|---:|
+| 15 | +32.5% | +4.6% | −3.8% | −21.7% |
+| **25** (chosen) | **−10.2%** | **+1.0%** | **+1.3%** | **−9.4%** |
+| 50 | −4.7% | +1.5% | +5.9% | +42.2% |
+| 100 | ~0% | ~0% | 0% | +0.9% |
+
+Too narrow and every iteration fails and re-searches; too wide and the window stops narrowing
+anything, converging on the full-window baseline as it must.
+
+**The interesting failure.** The K+P endgame's zugzwang regression test broke when this landed,
+and the obvious suspect was LMR — the inexact technique, in the position the project already knows
+is fragile. It was not LMR. The aspiration window moved that win from depth 17 to depth 18 *without
+being inexact*: rebuilt with the transposition table's score cutoffs disabled, an aspirating build
+and a full-window build return the identical score (+262) at depth 17. What a narrow window changes
+is what lands in the *table* — bounds where a wide window stored exact scores — and a pawn endgame
+is dense with transpositions, so the engine had been reading a real extra ply of effective depth
+back out of those exact entries.
+
+That is the same effect [PVS](#principal-variation-search-milestone-5) hit in this same position
+one milestone ago, which makes it a general property of every narrowing technique in this engine
+rather than a quirk of one. The ply comes back on the clock, which is the only place it matters:
+the win is now found in **72 ms at depth 18**, where it used to take **79 ms at depth 17**.
+
+### Late move reductions (Milestone 6)
+
+Every other technique in this engine is exact. LMR is the first one allowed to be wrong, and the
+trade is why it's worth it: search the moves the ordering already ranked as unpromising to a
+*shallower* depth, and spend what that saves on depth for everything else.
+
+The bet is on the move ordering, not on the moves. By the time the fourth quiet move at a node is
+reached, the TT move, every capture, both killers and the highest-history quiets have been searched
+and none beat alpha. Such a move is very unlikely to be best — and if the ordering is right, all
+the search needs from it is confirmation that it isn't, which a shallow search provides cheaply.
+Reduction is `0.75 + ln(depth) · ln(move_index) / 2.25`: deep searches can afford to give up more
+plies, late moves deserve to lose more, and a move that is both gets reduced hardest.
+
+When the shallow search is wrong — the move beats alpha — its answer is thrown away and the move
+is re-searched at full depth. That keeps the failure mode one-sided: **LMR can miss a good move,
+but it can never promote a bad one on shallow evidence.** That asymmetry, not score equality, is
+what [`test_research.cpp`](tests/unit/test_research.cpp) pins.
+
+It is the largest single-change node reduction in the project:
+
+| Nodes to depth 7 | Opening | Middlegame | Endgame (K+P) | Tactical |
+|---|---:|---:|---:|---:|
+| Before | 287,123 | 1,129,624 | 6,437 | 300,109 |
+| After | 25,424 | 110,879 | 3,090 | 27,338 |
+| Δ | **−91.1%** | **−90.2%** | −52.0% | **−90.9%** |
+
+**Nodes/sec fell 20–51%, and that is fine.** The
+[recorded run](bench/results/history/2026-08-15-6cee021.json) shows wall time down 30–65% at
+depth 5 alongside a large drop in nodes/sec, which looks alarming until you ask what the remaining
+nodes *are*. It is not per-node overhead: rebuilding this same code with both new techniques
+switched off reproduces Milestone 5's tree exactly, and the Kiwipete benchmark then runs in the
+identical time to the node — so the `in_check` query hoisted to the top of every node, the obvious
+suspect, costs nothing measurable. What changed is the node *mix*. LMR deletes whole subtrees,
+and subtrees bottom out in quiescence leaves, which are the cheapest nodes in the engine — one
+evaluation and a capture scan. Removing them leaves a tree proportionally richer in interior
+nodes, which pay for move generation, move scoring, and a TT probe each. The average node costs
+more because the cheap ones are gone. Nodes/sec is a per-node cost metric, and this is a change
+that deliberately stops visiting nodes, which is why
+[REFERENCE.md's metrics catalog](REFERENCE.md) makes nodes-to-depth-N the primary search metric
+and treats nodes/sec as a supporting one.
+
+**What it costs, stated plainly.** At a fixed depth 7 the Win At Chess suite fell to 13/18, from
+15/18. That is a measurement artifact, not a strength regression — under a *time* limit, which is
+how the engine is actually used, the same suite scores 15/18 at any movetime from 200 ms up,
+unchanged from Milestone 5. A nominal ply simply means less tree than it used to, so the suite's
+depth was raised to 10 (where it again solves everything it did before, in under a second) and its
+solve count is no longer compared across milestones. Two of the four pinned depth-5 conclusions
+also moved: the endgame's score by two centipawns, and the opening's best move between two moves
+it scores identically.
+
+**Four conventional extra guards were implemented, measured, and rejected** — a zugzwang guard
+mirroring null-move's, exempting killer moves, reducing less at PV nodes, and searching four moves
+at full depth instead of three. Only the last was rejected as harmful (2.5× the nodes on the
+opening). The other three were rejected as *unresolvable*: exempting killers, for instance, is
+−29% nodes on the opening and +14% on Kiwipete with no change to the tactics suite, and node
+counts cannot rank an inexact change that helps one position and hurts another. Settling them
+needs games, which — as of this milestone — the project finally has.
+
+Two of them were then played out, and **neither survived contact with a real match.** The
+aggressive divisor (`1.75`), the standout of the whole sweep at 34–43% fewer nodes for an identical
+tactics score, scored 49.9% over 480 games. Exempting killers ran the full 2,000-game cap at
+**+9 ± 11 Elo** — a confidence interval straddling zero, and a point estimate that lands almost
+exactly on the +10 threshold the test was asking about, which is precisely why it never resolved.
+Both stay rejected, now on evidence rather than for want of it.
+([ADR 0006](docs/adr/0006-aspiration-lmr-constants.md) has the full sweeps and the match records.)
+
+### Milestone 6 end to end
+
+Both changes, measured against the Milestone 5 tag:
+
+| | Opening | Middlegame | Endgame (K+P) | Tactical |
+|---|---:|---:|---:|---:|
+| Nodes to depth 7, M5 | 287,123 | 1,129,624 | 6,437 | 300,109 |
+| Nodes to depth 7, M6 | 25,424 | 110,879 | 3,090 | 27,338 |
+| Δ | **−91.1%** | **−90.2%** | **−52.0%** | **−90.9%** |
+| Depth in 5 s, M5 → M6 | 11 → **14** | 10 → **14** | 24 → **27** | 11 → **16** |
+
+Three to five plies on every position — the largest single-milestone movement in the project, and
+the first one where the endgame column is not the apology. Both metrics are quoted because LMR is
+specifically the kind of change that can trade one for the other; here it won on both.
+
+**And, for the first time in the project, that was checked by playing games rather than inferred
+from node counts.** Both milestones were built from their committed commits with identical flags
+and played head to head under SPRT (H0: gain ≤ 0 Elo, H1: gain ≥ 10, α = β = 0.05), same book,
+same seed, same machine:
+
+```
+M6 (0d518a8) vs M5 (6cee021),  10+0.1,  163 games
+  +88 =52 -23   [0.699]   Elo +147 +/- 46
+  SPRT llr 2.95  ->  H1 accepted
+```
+
+The test reached its decision in 163 games. Self-play inflates the magnitude roughly 1.5-2x —
+both sides share every blind spot — so the honest reading is **on the order of +70 to +100 real
+Elo**, not +147. The direction and the significance are what transfer.
+
+That check mattered more than it looks. The same rig, pointed at an LMR constant that searched
+34-43% *fewer* nodes at fixed depth with an identical tactics score, measured it at 49.9% over 480
+games — worth nothing. Fewer nodes is not the same claim as better play, and this milestone is the
+first place in the project where the two have been told apart by evidence instead of argument.
+
 ### Movegen baseline
 
 The loop/bit-shift ray walker, unchanged since Milestone 1 — this is the number a future
@@ -699,7 +872,7 @@ leave `master` in a buildable, UCI-playable state.
 | 3 | **Material eval + alpha-beta** — negamax, iterative deepening, time management | ✅ Complete |
 | 4 | **Move ordering, quiescence, TT** | ✅ Complete — TT, MVV-LVA, killers, history, quiescence ([numbers](#move-ordering-and-quiescence-milestone-4)) |
 | 5 | **PVS, piece-square tables / tapered eval, null-move pruning** | ✅ Complete — [tapered PSTs](#piece-square-tables-and-tapered-eval-milestone-5), [PVS](#principal-variation-search-milestone-5), [null-move pruning](#null-move-pruning-milestone-5) ([summary](#milestone-5-end-to-end)) |
-| 6 | **Aspiration windows, late move reductions** | ⬜ Not started |
+| 6 | **Aspiration windows, late move reductions** | ✅ Complete — [aspiration windows](#aspiration-windows-milestone-6), [LMR](#late-move-reductions-milestone-6) ([summary](#milestone-6-end-to-end)) |
 | 7 | **Polish & portfolio packaging** — architecture diagrams, full option set, strength estimate | 🚧 Partial — this README, the live deployment, and the release pipeline are done |
 | 8+ | **Lazy-SMP search**, opening book, evaluation tuning harness | ⬜ Committed stretch goals |
 
@@ -732,6 +905,8 @@ Contested decisions are recorded rather than re-litigated. Full ADRs live in
 | [Quiescence generates pseudo-legal moves](docs/adr/0005-quiescence-pseudo-legal-movegen.md) | Filtering a *legal* move list pays a make/unmake for ~35 quiet moves to search ~4 captures; halved engine throughput with every test still green |
 | [`Move` stays a plain struct](REFERENCE.md) | Bit-packing is deferred until a benchmark shows move-list/TT cache pressure actually matters |
 | [Feature branch + PR for every change](REFERENCE.md) | The PR description is where design rationale and before/after numbers live |
+| [Aspiration/LMR constants, and four LMR guards rejected](docs/adr/0006-aspiration-lmr-constants.md) | The first constants in the project that nothing derives — three of the four rejected guards were dropped as *unresolvable by node counts*, not as harmful, because an inexact heuristic that helps one position and hurts another needs games to rank |
+| [Every inexact technique gets a runtime switch](docs/adr/0006-aspiration-lmr-constants.md) | "Is this technique exact?" can only be asked with the *other* inexact ones held still; `SearchTuning::exact()` turns a hand-rebuilt experiment into a CI test |
 
 ---
 
@@ -794,9 +969,20 @@ document:
   whether the victim is defended, so QxP-into-a-recapture is searched at the same priority as a
   genuinely winning QxP. That costs nodes, never correctness — quiescence still scores the
   exchange correctly once it searches it.
-- **No strength estimate.** No SPRT match has been run, so Dahlia has no Elo figure and this
-  README deliberately doesn't invent one. The Milestone 4 tag is the first version worth running
-  one against; the match tooling lives outside this repository.
+- **The rating is a first measurement, not a converged one.** 1928 blitz is 87 games. The
+  confidence interval on a sample that size is wide, Lichess is still moving the number quickly,
+  and it was recorded mid-milestone — the Milestone 6 work is part of what will move it next.
+  Quote it with its date and game count or not at all.
+- **Only one SPRT match has been run.** Milestone 6 vs. Milestone 5 is measured
+  ([below](#milestone-6-end-to-end)); nothing before it is. The absolute rating says what Dahlia is
+  worth, but not whether any individual change helped, because every other variable moves with it —
+  that is what SPRT is for, and every milestone up to and including 5 is still unmeasured
+  individually. The match tooling lives outside this repository.
+- **LMR can lose a move the engine would otherwise have found.** It is the one technique here
+  allowed to be wrong: a reduced move that fails low is believed without verification. The
+  re-search guarantees it cannot *promote* a bad move, and the tactics suite at a fixed time shows
+  no measured cost, but "no measured cost on 18 positions" is a weaker claim than soundness and is
+  not dressed up as one.
 - **Timing regressions depend on remembering to run the script.** Node-count regressions are
   caught automatically on every push, but wall-clock ones surface only when
   `scripts/run_benchmarks.sh` is run. Accepted deliberately: an unreliable automated timing

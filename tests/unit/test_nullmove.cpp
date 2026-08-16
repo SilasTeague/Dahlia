@@ -122,19 +122,36 @@ TEST_CASE("null move: the zugzwang guard sees pawns-and-king positions", "[nullm
 // White to move wins by 1.Ke4, taking the opposition -- the pawn promotes and
 // the score jumps to roughly +980. Rebuilding the engine with the guard
 // removed and nothing else changed, the same search at the same depth returns
-// **+219** and never finds the promotion: null-move pruning assumes passing is
-// worse than any legal move, and in a pawn endgame that assumption is exactly
-// backwards, so the free move handed over in the null search refutes lines
-// that no real move can refute.
+// **+254** and plays 1.Kd4 instead: null-move pruning assumes passing is worse
+// than any legal move, and in a pawn endgame that assumption is exactly
+// backwards, so the free move handed over in the null search refutes lines that
+// no real move can refute.
 //
-// Depth 17 is the shallowest depth at which the win is visible at all, which
-// is also why this is pinned rather than left to the tactics suite: a change
-// that quietly costs the engine a ply here would go unnoticed everywhere else.
+// Depth 18 is the shallowest depth at which the win is visible at all, which is
+// also why this is pinned rather than left to the tactics suite: a change that
+// quietly costs the engine a ply here would go unnoticed everywhere else.
+//
+// It was depth 17 until Milestone 6, and the ply it moved by is worth
+// explaining, because the cause is not the one it looks like. Aspiration
+// windows -- not LMR -- are what moved it, and they did so *without being
+// inexact*: rebuilt with the TT's score cutoffs disabled, an aspiration build
+// and a full-window build return the identical score (+262) at depth 17, so the
+// narrow window provably changes no search result. What it changes is what
+// lands in the transposition table. A narrow-window search stores bounds where
+// a full-window search stored exact scores, and this position is dense with
+// transpositions, so the engine had been reading a real extra ply or two of
+// effective depth out of those exact entries. That is the same TT
+// bound-versus-exact effect Milestone 5 traced in this very position when PVS
+// landed (REFERENCE.md 3.8), showing up a second time and for the same reason.
+//
+// The ply is given back on the clock, which is the only place it matters: the
+// engine now reaches the win in 72 ms at depth 18 where it used to need 79 ms
+// at depth 17.
 TEST_CASE("null move: the zugzwang guard keeps a won pawn endgame won",
           "[nullmove][search][zugzwang]") {
-	search::SearchResult result = search_at_depth("8/8/4k3/8/8/4K3/4P3/8 w - - 0 1", 17);
+	search::SearchResult result = search_at_depth("8/8/4k3/8/8/4K3/4P3/8 w - - 0 1", 18);
 
-	// A win, not "slightly better": without the guard this is +219.
+	// A win, not "slightly better": without the guard this is +254.
 	CHECK(result.score > 500);
 	CHECK(result.best_move.from == e3);
 	CHECK(result.best_move.to == e4);
