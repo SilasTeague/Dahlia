@@ -777,7 +777,14 @@ opening). The other three were rejected as *unresolvable*: exempting killers, fo
 −29% nodes on the opening and +14% on Kiwipete with no change to the tactics suite, and node
 counts cannot rank an inexact change that helps one position and hurts another. Settling them
 needs games, which — as of this milestone — the project finally has.
-([ADR 0006](docs/adr/0006-aspiration-lmr-constants.md) has the full sweeps.)
+
+Two of them were then played out, and **neither survived contact with a real match.** The
+aggressive divisor (`1.75`), the standout of the whole sweep at 34–43% fewer nodes for an identical
+tactics score, scored 49.9% over 480 games. Exempting killers ran the full 2,000-game cap at
+**+9 ± 11 Elo** — a confidence interval straddling zero, and a point estimate that lands almost
+exactly on the +10 threshold the test was asking about, which is precisely why it never resolved.
+Both stay rejected, now on evidence rather than for want of it.
+([ADR 0006](docs/adr/0006-aspiration-lmr-constants.md) has the full sweeps and the match records.)
 
 ### Milestone 6 end to end
 
@@ -970,8 +977,7 @@ document:
   ([below](#milestone-6-end-to-end)); nothing before it is. The absolute rating says what Dahlia is
   worth, but not whether any individual change helped, because every other variable moves with it —
   that is what SPRT is for, and every milestone up to and including 5 is still unmeasured
-  individually. Two constants in [ADR 0006](docs/adr/0006-aspiration-lmr-constants.md) also remain
-  parked pending their own matches. The match tooling lives outside this repository.
+  individually. The match tooling lives outside this repository.
 - **LMR can lose a move the engine would otherwise have found.** It is the one technique here
   allowed to be wrong: a reduced move that fails low is believed without verification. The
   re-search guarantees it cannot *promote* a bad move, and the tactics suite at a fixed time shows

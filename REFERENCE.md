@@ -674,7 +674,7 @@ Both tests this milestone asked for exist: the eval-symmetry test is `test_eval.
 - **Deliverables:** aspiration windows around prior iteration score with re-search on fail-high/low; LMR with re-search on fail-high.
 - **Benchmarks:** depth-reached-in-fixed-time before/after; nodes-to-depth-N (LMR trades node-count-per-depth for raw depth, so track both, not just one).
 - **Tests:** re-search correctness tests (aspiration/LMR fail-high must produce the same result as a full-window/full-depth search would have — a property test comparing against a "safe mode" search on a small position set is valuable here).
-- **Success criteria (revised 2026-08-15, see below):** a measured rating gain over the Milestone 5 tag on the Lichess rating ladder; documented LMR/aspiration tuning constants and rationale in an ADR.
+- **Success criteria (revised 2026-08-15, see below):** a measured strength gain over the Milestone 5 tag, on **both** instruments — an SPRT-confirmed relative gain from a self-play match, and a rating gain on the Lichess ladder once the new build is deployed; documented LMR/aspiration tuning constants and rationale in an ADR.
 
 **Correction to the success criteria (2026-08-15).** As originally written this milestone required an "SPRT-confirmed Elo gain over Milestone 5", which is the same criterion Milestones 4 and 5 carried and neither met. That was not an oversight either time, and repeating it a third time would have been: the SPRT rig, opening book and rating ladder deliberately live in a separate repository (`dahlia-elo`), so no milestone in *this* repository can gate on them, and a criterion no milestone can satisfy is not a criterion. The roadmap's own rule — every milestone's success criteria must be measurable by that milestone — was being broken by the criterion itself.
 
@@ -686,14 +686,16 @@ The replacement is not weaker, it is real. **Dahlia now plays rated games on Lic
 
 Against the Milestone 5 tag, nodes to depth 7 fell 91.1% (opening), 90.2% (Kiwipete), 52.0% (K+P) and 90.9% (tactical), and depth reached in a fixed five seconds rose from 11 to 14, 10 to 14, 24 to 27, and 11 to 16 — three to five plies on every benchmark position, the largest single-milestone movement in the project. Both metrics were tracked, as this milestone required, precisely because LMR trades one for the other; here it happened to win on both.
 
-**Strength, measured (2026-08-15).** The milestone's revised success criterion is a measured rating gain, and it is met — by the relative instrument rather than the ladder. Both milestones were built from their committed commits (`0d518a8` and `6cee021`) with identical flags and played head to head under SPRT at 10+0.1, same book, same seed, same machine:
+**Strength, measured (2026-08-15).** Half the criterion is met, and the half that isn't is named rather than quietly redefined. Both milestones were built from their committed commits (`0d518a8` and `6cee021`) with identical flags and played head to head under SPRT at 10+0.1, same book, same seed, same machine:
 
 ```
 M6 vs M5, 163 games:  +88 =52 -23  [0.699]   Elo +147 +/- 46
 SPRT (elo0=0, elo1=10, alpha=beta=0.05): llr 2.95 -> H1 accepted
 ```
 
-This is the first SPRT this project has ever run. Self-play inflates the magnitude roughly 1.5–2x, so the defensible claim is **on the order of +70 to +100 Elo**, not +147; the direction and the significance are what transfer. The absolute Lichess figure remains the other half of the criterion and moves on its own schedule, since the ladder measures a different thing (see the metrics catalog).
+This is the first SPRT this project has ever run. Self-play inflates the magnitude roughly 1.5–2x, so the defensible claim is **on the order of +70 to +100 Elo**, not +147; the direction and the significance are what transfer.
+
+**The Lichess half is not met, and the criterion was amended rather than waved through.** As originally revised, this milestone required a rating gain *on the ladder*; what has actually been produced is a relative SPRT result, which is a different instrument. Accepting it as though it satisfied the stated criterion would be the same goalpost-moving the criterion was rewritten to stop — so the criterion now names both instruments explicitly, and this milestone is complete on the first and pending on the second. The Lichess bot still runs the Milestone 5 build, which means the 1928/1977 blitz figures measure the *old* engine; the ladder cannot say anything about Milestone 6 until `v2.2` is tagged and deployed.
 
 The result is also the milestone's own methodological point, made in games. The same rig measured `lmr_divisor=1.75` — which searches 34–43% *fewer* nodes at fixed depth with an identical tactics score — at 49.9% over 480 games. Nodes-to-depth and strength came apart exactly where ADR 0006 predicted they would.
 
@@ -703,7 +705,7 @@ Three things are worth recording as they actually happened rather than as they w
 - **`SearchTuning` exists because of that diagnosis.** Answering "is the window exact?" required holding still not just LMR but null-move and delta pruning, both of which read the current window before deciding what to skip and so change their answers when one narrows. `SearchTuning::exact()` switches off everything inexact, and it converts a verification Milestone 5 performed by rebuilding the engine twice by hand into a test that runs in CI.
 - **The tactics suite's depth moved, and its cross-milestone comparison is retired.** At a fixed depth 7 the suite fell to 13/18 from Milestone 5's 15/18. That is not a strength regression: under a *time* limit, which is how the engine is used, the same suite scores 15/18 at any movetime from 200 ms up — unchanged. LMR simply makes a nominal ply mean less tree, so the suite's depth was raised to 10 (where it again solves everything it used to, in under a second) and its claim is now "the same three positions fail, and they fail on evaluation" rather than a solve count indexed to depth 7.
 
-Two constants remain genuinely open — the LMR divisor (2.25 vs a measured-cheaper 1.75) and the killer-move exemption — because node counts cannot rank a change that helps one position and hurts another when the technique is inexact. Both are now answerable, for the first time in the project, by playing games.
+Two constants were left open at the time of writing — the LMR divisor (2.25 vs a measured-cheaper 1.75) and the killer-move exemption — because node counts cannot rank a change that helps one position and hurts another when the technique is inexact. **Both have since been played out, and neither changed:** the divisor measured 49.9% over 480 games, and the killer exemption ran the full 2000-game cap at +9 ± 11 Elo without SPRT reaching a bound. The full record is in ADR 0006's postscript. The lasting result of this milestone is therefore not either constant but the instrument: the project can now tell a real gain from a plausible one, and the first thing it did with that ability was decline the change its own benchmark table had ranked highest.
 
 ### Milestone 7: Polish, Options, Portfolio Packaging
 - **Goals:** the "resume-ready" milestone — everything above this line is chess engineering; this milestone is presentation and completeness.

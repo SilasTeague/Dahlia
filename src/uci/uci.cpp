@@ -160,12 +160,7 @@ class Engine {
 
 	void handle_uci() {
 		std::lock_guard<std::mutex> lock(io_mutex_);
-		// An ordinary build reports plain "Dahlia". A build carrying
-		// experimental search constants says so in its name, so it cannot be
-		// mistaken for the shipped engine by a GUI, a match log, or the reader
-		// of one months later.
-		const std::string tuning = search::build_tuning_signature();
-		out_ << "id name Dahlia" << (tuning.empty() ? "" : " [" + tuning + "]") << "\n";
+		out_ << "id name Dahlia\n";
 		out_ << "id author Silas Teague\n";
 		out_ << "option name Hash type spin default " << kDefaultHashMb << " min 1 max 1024\n";
 		out_ << "option name Move Overhead type spin default " << search::kDefaultMoveOverheadMs

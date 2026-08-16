@@ -144,6 +144,8 @@ Four additional LMR guards were implemented and measured. **None is adopted.**
   harmful. It is a large effect in both directions: −29% nodes on the opening at
   depth 14, +14% on Kiwipete, no change to the tactics suite. Node counts cannot
   rank an inexact change that helps one position and hurts another; games can.
+  *Since measured over 2000 games at +9 ± 11 Elo — see the postscript. Still
+  rejected, now on evidence rather than for want of it.*
 - **Reducing one ply less at PV nodes** (`beta > alpha + 1`) — rejected. No
   measured effect on the tactics suite and no meaningful node change.
 - **`kLmrFullDepthMoves` = 4** — rejected, as measured above.
@@ -205,11 +207,18 @@ it does: Dahlia plays rated games on Lichess.
 
 The constants above were parked because the project had no way to rank an inexact
 change. It now has one. `run.py ab` in the `dahlia-elo` repository plays two Dahlia
-builds head to head under SPRT, and the constants are exposed as CMake options
-(`DAHLIA_LMR_DIVISOR`, `DAHLIA_LMR_EXEMPT_KILLERS`) so each side of a match is a
-fixed, reproducible binary rather than a patched working tree. A build carrying
-non-default constants reports them in its UCI `id name`, so a misconfigured match
-is visible in the log instead of quietly producing a plausible number.
+builds head to head under SPRT.
+
+While these matches ran, both constants were exposed as CMake options
+(`DAHLIA_LMR_DIVISOR`, `DAHLIA_LMR_EXEMPT_KILLERS`) so that each side of a match was
+a fixed, reproducible binary rather than a patched working tree, and a build
+carrying non-default constants reported them in its UCI `id name` so a
+misconfigured match would be visible in the log rather than quietly producing a
+plausible number. **Both options have since been removed**, per the rule they were
+added under: a knob earns its place only while its question is open. Re-opening
+either question means re-adding a ten-line patch, which is cheaper than carrying a
+configuration surface that no longer configures a live decision. The measurements
+below are what the knobs were for, and they outlive them.
 
 **The milestone itself is confirmed.** M6 vs M5, both built from committed commits
 with identical flags: `+88 =52 -23` over 163 games, SPRT `llr 2.95 → H1 accepted`,
@@ -228,4 +237,25 @@ clear winner. Games rank it at nothing. Had this ADR adopted the cheaper constan
 the strength of the table it built, it would have shipped a regression and cited a
 benchmark to justify it.
 
-**The killer-move exemption is still open** — its match has not run to a verdict.
+**The killer-move exemption is measured, and not worth adopting.** It ran the full
+2000-game cap without SPRT reaching either bound:
+
+```
+killers vs base, 2000 games:  +593 =866 -541  [0.513]   Elo +9 +/- 11
+SPRT llr 1.18 (40% of the way to H1) -- no verdict at the cap
+```
+
+The absence of a verdict is itself the finding, and it is the textbook case: the
+point estimate landed at +9 Elo against an H1 of +10, so the truth sits almost
+exactly on the decision boundary, which is the one place a sequential test cannot
+resolve. Two thousand games bought a confidence interval that still spans zero.
+
+Taken at face value, +9 *self-play* Elo discounts to roughly +5 real — below the
+threshold at which an extra condition in the innermost search loop pays for itself,
+and well inside the error bar. **The status quo stands: killers are reduced like any
+other quiet move.** Recorded as measured-and-declined rather than open, because the
+question has now had its answer, and it is "not enough to matter."
+
+Both parked constants are therefore closed. Neither changed. What changed is that
+the project can now tell a real gain from a plausible one, which is the durable
+result of this milestone — more than either constant would have been.
