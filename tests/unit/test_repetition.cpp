@@ -9,10 +9,9 @@
 #include "position/position.h"
 #include "search/search.h"
 
-// Draw-by-repetition tests (REFERENCE.md 3.4/3.8): the rule itself, and the
-// two things the search has to get right -- seeing a repetition it walks into
-// inside its own tree, and seeing a threefold completed by a position that was
-// only ever reached in the moves actually played.
+// The rule itself, plus the two things the search has to get right: a repetition
+// it walks into inside its own tree, and a threefold completed by a position
+// reached only in the moves actually played. See docs/search.md.
 
 namespace {
 
@@ -37,10 +36,8 @@ Position play(const char* fen, const std::vector<Move>& moves, PositionHistory& 
 	return pos;
 }
 
-// White is a queen down and can only shuffle its king between g1 and h2;
-// black's king shuffles between g8 and h8. Every position is reachable again
-// in two plies, and material is lopsided enough that a repetition draw (0) is
-// unmistakable next to the alternative (about -900).
+// Both kings can only shuffle, so every position recurs in two plies, and White
+// is a queen down -- a draw (0) is unmistakable next to the alternative (~-900).
 constexpr const char* kShuffleFen = "q5k1/8/8/8/8/8/8/6K1 w - - 0 1";
 
 }  // namespace
@@ -110,11 +107,8 @@ TEST_CASE("repetition: positions before the last irreversible move are out of re
 }
 
 TEST_CASE("repetition: search takes a perpetual check over losing material", "[repetition][search]") {
-	// White is a rook down, but 1. Qh5+ Kg8 2. Qe8+ Kh7 3. Qh5+ repeats the
-	// position after move 1, and every black reply is forced (no square but the
-	// one, nothing to block or capture with). The draw is only visible if the
-	// search recognizes the repeat at ply 5 -- without it the line just
-	// evaluates to the material deficit.
+	// White is a rook down, but 1.Qh5+ Kg8 2.Qe8+ Kh7 3.Qh5+ repeats with every
+	// black reply forced -- visible only if the search sees the repeat at ply 5.
 	Position pos = parse_fen("8/r5pk/8/8/8/8/q4PPP/3Q2K1 w - - 0 1");
 
 	search::SearchLimits limits;
@@ -129,11 +123,9 @@ TEST_CASE("repetition: search takes a perpetual check over losing material", "[r
 }
 
 TEST_CASE("repetition: search claims a threefold completed by the played game", "[repetition][search]") {
-	// The same two positions have already been on the board twice each, so
-	// White's Kg1-h2 is the third occurrence and ends the game. Nothing in the
-	// search tree repeats at depth 2 -- only the moves played before the root
-	// make this a draw, which is exactly what a search that ignores the game
-	// history cannot see.
+	// Both positions have been on the board twice, so Kg1-h2 is the third
+	// occurrence. Nothing repeats inside the tree at depth 2 -- only the played
+	// moves make this a draw, which is what a history-blind search cannot see.
 	PositionHistory history;
 	Position pos = play(kShuffleFen,
 	                    {{g1, h2}, {g8, h8}, {h2, g1}, {h8, g8},

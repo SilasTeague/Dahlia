@@ -3,27 +3,10 @@
 #include "movegen/attacks.h"
 #include "perft.h"
 
-// Perft correctness suite (REFERENCE.md 3.5), using the real make_move/
-// unmake_move rather than the throwaway copy-based Milestone-1 harness.
-//
-// Two things are checked at every depth:
-//  - Total node count against the standard chess-programming-wiki reference
-//    values (https://www.chessprogramming.org/Perft_Results) — the real
-//    correctness oracle for movegen + make/unmake.
-//  - Node count broken down by which piece type made the *root* move
-//    (PerftBreakdown::by_piece). At depth 1 this is hand-computable and
-//    checked as an independent oracle. At depth >=2 the same partition
-//    necessarily has the same nonzero categories as depth 1 (it's still a
-//    root-move partition), so those are checked too; the values themselves
-//    were captured from this implementation only *after* the matching total
-//    was independently verified against the reference count, so a future
-//    regression that changes the shape of the tree without changing the
-//    total (e.g. pawn/knight moves miscounted in offsetting ways) still
-//    gets caught.
-//
-// Shallow depths run in CI by default; depth 6 (and Kiwipete depth 5) are
-// tagged [.] (Catch2 "hidden") for manual/nightly runs per REFERENCE.md 1.6
-// — Kiwipete depth 6 alone is ~8 billion nodes.
+// Totals are checked against the standard chess-programming-wiki reference
+// values (https://www.chessprogramming.org/Perft_Results); the per-root-piece
+// breakdown alongside them catches a tree that changes shape without changing
+// its total. Deep runs are tagged [.] for manual runs. See docs/testing.md.
 
 namespace {
 
@@ -48,11 +31,8 @@ void check_breakdown(const PerftBreakdown& b, uint64_t nodes,
 
 }  // namespace
 
-// --- Start position ---
-// Depth 1 is hand-computable: only pawns and knights have legal first moves
-// (bishops/rooks/queen/king are all still blocked by their own pawns), so
-// 8 pawns x 2 (single/double push) = 16, and both knights x 2 destinations
-// each = 4; 16 + 4 = 20, matching the known depth-1 total.
+// Start position. Depth 1 is hand-computable: 8 pawns x 2 pushes + 2 knights x 2
+// destinations = 20, everything else still blocked by its own pawns.
 
 TEST_CASE("perft: start position, depth 1-3", "[perft]") {
 	Position pos = parse_fen(kStartFen);
@@ -76,9 +56,8 @@ TEST_CASE("perft: start position, depth 6", "[perft][.]") {
 	check_breakdown(perft_divide_by_piece_type(pos, 6), 119060324, 97894668, 21165656, 0, 0, 0, 0);
 }
 
-// --- Kiwipete (position 2): open position, all piece types have root moves,
-// castling/en passant/promotion rich (the reason CPW uses it as the second
-// standard perft position). ---
+// Kiwipete: every piece type has root moves, and it is castling/en-passant/
+// promotion rich, which is why CPW uses it as the second standard position.
 
 TEST_CASE("perft: Kiwipete, depth 1-3", "[perft]") {
 	Position pos = parse_fen(kKiwipeteFen);
@@ -97,10 +76,10 @@ TEST_CASE("perft: Kiwipete, depth 5", "[perft][.]") {
 	check_breakdown(perft_divide_by_piece_type(pos, 5), 193690690, 31976200, 43739443, 43485470, 18885211, 40996690, 14607676);
 }
 
+// Kiwipete depth 6: the standard CPW total is 8,031,647,685. Left commented out
+// because it runs for about four minutes.
 // TEST_CASE("perft: Kiwipete, depth 6", "[perft][.]") {
 // 	Position pos = parse_fen(kKiwipeteFen);
-// 	// Total (8031647685) is the standard CPW reference value. ~4 minutes to
-// 	// run — manual only
 // 	check_breakdown(perft_divide_by_piece_type(pos, 6), 8031647685ULL,
 // 	                 1324240331ULL, 1824746608ULL, 1779999021ULL,
 // 	                 789758964ULL, 1703924183ULL, 608978578ULL);

@@ -61,11 +61,8 @@ Move move_from_uci(std::string_view s) {
 	return Move{from, to, promotion};
 }
 
-// "position [startpos | fen <fen fields>] [moves <uci moves...>]"
-//
-// The move list is also where the engine learns which positions have already
-// occurred: GUIs re-send the whole game on every `position`, so `history` is
-// rebuilt from scratch rather than appended to.
+// "position [startpos | fen <fen fields>] [moves <uci moves...>]". GUIs re-send
+// the whole game every time, so `history` is rebuilt rather than appended to.
 void handle_position(std::istringstream& iss, Position& pos, PositionHistory& history) {
 	history.clear();
 
@@ -99,9 +96,7 @@ void handle_position(std::istringstream& iss, Position& pos, PositionHistory& hi
 }
 
 // "go [depth D] [movetime MS] [wtime MS] [btime MS] [winc MS] [binc MS]
-//  [movestogo N] [infinite]" -- unrecognized tokens (e.g. "nodes", "ponder",
-// "searchmoves ...") are consumed harmlessly by the `iss >> token` loop below
-// since they're not matched by any branch.
+// [movestogo N] [infinite]"; unrecognized tokens fall through harmlessly.
 search::SearchLimits parse_go_limits(std::istringstream& iss) {
 	search::SearchLimits limits;
 	std::string token;
@@ -118,10 +113,8 @@ search::SearchLimits parse_go_limits(std::istringstream& iss) {
 	return limits;
 }
 
-// "setoption name <Hash|Move Overhead> value <N>". Option names can be
-// multi-word ("Move Overhead"), so the name tokens are rejoined with the
-// single spaces the protocol splits them on. Out-of-range values are ignored,
-// leaving the current setting in place.
+// "setoption name <Hash|Move Overhead> value <N>", where names can be multi-word
+// and so are rejoined; out-of-range values leave the setting in place.
 void handle_setoption(std::istringstream& iss, search::TranspositionTable& tt, long long& move_overhead_ms) {
 	std::string token;
 	iss >> token;  // "name"
@@ -139,20 +132,14 @@ void handle_setoption(std::istringstream& iss, search::TranspositionTable& tt, l
 	}
 }
 
-// Owns the position/TT/search-thread state for one UCI session. `go` runs
-// search::think on a dedicated thread so the stdin read-loop stays
-// responsive (`stop`/`isready`/`quit`) for the duration of a search
-// (REFERENCE.md 3.8/3.9/3.10). All output goes through write_line(), which
-// serializes the search thread's `info` lines against the reader thread's
-// `readyok`/`bestmove`/etc. under one mutex -- otherwise two threads writing
-// to `out` concurrently could interleave mid-line.
+// Owns the position/TT/search-thread state for one UCI session. All output goes
+// through write_line(), which serializes the search thread's `info` lines
+// against the reader thread's under one mutex -- a torn line hangs a GUI.
 class Engine {
  public:
 	explicit Engine(std::ostream& out) : out_(out), pos_(parse_fen(kStartFen)) {}
 
-	// Guarantees the search thread (if any) is stopped and joined before the
-	// Engine's members are torn down, however run_uci_loop exits (`quit`, or
-	// the input stream simply running out without one).
+	// Stops and joins the search thread however run_uci_loop exits, `quit` or not.
 	~Engine() { stop_and_join(); }
 
 	Engine(const Engine&) = delete;
@@ -169,20 +156,16 @@ class Engine {
 		out_.flush();
 	}
 
-	// Must answer even while a search is in flight -- GUIs use isready to
-	// confirm the engine is alive/responsive mid-search, not just at startup.
+	// Must answer even mid-search: GUIs use it to confirm the engine is alive.
 	void handle_isready() { write_line("readyok"); }
 
-	// UCI compliant GUIs only send ucinewgame/setoption/position between a
-	// `bestmove` and the next `go`, never during a search, so no guard
-	// against a concurrent search is needed here (REFERENCE.md 3.10).
+	// Compliant GUIs only send this between a `bestmove` and the next `go`, so
+	// no guard against a concurrent search is needed.
 	void handle_ucinewgame() {
 		pos_ = parse_fen(kStartFen);
 		history_.clear();
 		tt_.clear();
-		// Move-ordering state carried into an unrelated game is stale bias, not
-		// a head start: the history table's whole claim is "these moves keep
-		// working *here*" (REFERENCE.md 3.8).
+		// Move-ordering state carried into an unrelated game is stale bias.
 		move_history_.clear();
 	}
 
@@ -190,8 +173,7 @@ class Engine {
 
 	void handle_position(std::istringstream& iss) { ::handle_position(iss, pos_, history_); }
 
-	// A `go` that arrives while a search is already running is rejected
-	// outright rather than queued -- see docs/adr/0003-async-search-stop.md.
+	// A `go` arriving mid-search is rejected, not queued (docs/adr/0003-async-search-stop.md).
 	void handle_go(std::istringstream& iss) {
 		search::SearchLimits limits = parse_go_limits(iss);
 		limits.move_overhead_ms = move_overhead_ms_;  // from setoption, not from `go`
@@ -216,8 +198,7 @@ class Engine {
 			pos_, history_, limits);
 	}
 
-	// Signals the search thread; does not block waiting for it to finish, so
-	// isready/further commands stay responsive while it winds down.
+	// Signals the search thread without blocking on it, so the loop stays responsive.
 	void handle_stop() { stop_requested_.store(true, std::memory_order_relaxed); }
 
 	void quit() { stop_and_join(); }
@@ -240,14 +221,10 @@ class Engine {
 	Position pos_;
 	PositionHistory history_;
 	search::TranspositionTable tt_{kDefaultHashMb};
-	// Like tt_, owned here rather than by the search so it survives across the
-	// moves of a game; touched only by the search thread while a search is
-	// running, and only by handle_ucinewgame() when one isn't.
+	// Like tt_, owned here so it survives across the moves of a game.
 	search::HistoryTable move_history_;
-	// Read on the reader thread when launching a search, written only by
-	// setoption -- which UCI guarantees never arrives mid-search -- so it
-	// needs no synchronization; the value is copied into the limits the
-	// search thread gets.
+	// Written only by setoption, which never arrives mid-search, so it needs no
+	// synchronization; the value is copied into the limits the search thread gets.
 	long long move_overhead_ms_ = search::kDefaultMoveOverheadMs;
 
 	std::atomic<bool> stop_requested_{false};

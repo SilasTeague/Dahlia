@@ -6,14 +6,9 @@
 #include "position/position.h"
 #include "search/ordering.h"
 
-// Move ordering tests (REFERENCE.md 3.8 responsibility 4, Milestone 4).
-//
-// Nothing here is a correctness test in the usual sense: ordering cannot make
-// the search wrong, only slow. What these tests pin is the *ranking* -- that
-// each heuristic outranks the ones below it and that the bands never overlap --
-// because a band collision is silent. It costs nodes, passes every other test
-// in the suite, and shows up only as a number in the benchmark history that
-// nobody can explain.
+// Ordering cannot make the search wrong, only slow, so what these tests pin is
+// the ranking: each heuristic outranks the ones below it and the bands never
+// overlap. A band collision is silent everywhere else. See docs/search.md.
 
 namespace {
 
@@ -68,10 +63,8 @@ TEST_CASE("ordering: is_capture recognizes en passant", "[ordering]") {
 	CHECK_FALSE(search::is_capture(no_ep, Move{e5, d6}));
 }
 
-// The defining property of MVV-LVA. Both moves capture; the pawn's capture of
-// the queen is searched first because it wins material outright even if the
-// queen is defended, while the queen's capture of the pawn loses material if
-// the pawn is.
+// PxQ wins material outright even if the queen is defended while QxP loses it if
+// the pawn is, and that asymmetry is the whole of MVV-LVA.
 TEST_CASE("ordering: MVV-LVA prefers PxQ over QxP", "[ordering]") {
 	// White pawn on b4 and queen on d1; black queen on c5 and pawn on d5.
 	Position pos = parse_fen("4k3/8/8/2qp4/1P6/8/8/3QK3 w - - 0 1");
@@ -165,10 +158,8 @@ TEST_CASE("ordering: history weights deep cutoffs above shallow ones", "[orderin
 	CHECK(history.get(BLACK, Move{a1, a2}) == 0);
 }
 
-// Saturation handling: entries are halved rather than clamped, so the ranking
-// the ordering actually reads survives. A table that clamped instead would let
-// every well-used move pile up at the ceiling and stop distinguishing them --
-// the stale-saturation pitfall REFERENCE.md 3.8 names.
+// Halved rather than clamped on saturation, so the ranking survives; clamping
+// piles every well-used move at the ceiling and stops distinguishing them.
 TEST_CASE("ordering: history aging preserves the relative ranking", "[ordering]") {
 	search::HistoryTable history;
 	for (int i = 0; i < 8000; i++) {

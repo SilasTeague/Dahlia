@@ -7,7 +7,7 @@
 #include "position/position.h"
 #include "search/search.h"
 
-// Search regression tests (REFERENCE.md 1.6/3.8, Milestone 3): a handful of
+// Search regression tests (docs/REFERENCE.md 1.6/3.8, Milestone 3): a handful of
 // tactical positions solvable at shallow depth, guarding against a broken
 // alpha-beta/negamax implementation missing forced mates or free material.
 

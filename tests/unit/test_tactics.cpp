@@ -8,27 +8,10 @@
 #include "position/position.h"
 #include "search/search.h"
 
-// Tactical suite (REFERENCE.md 1.6, Milestone 4): a checked-in subset of Win
-// At Chess, the standard tactics EPD set, run at a fixed depth.
-//
-// Fixed depth rather than fixed time, for the same reason the node-count test
-// is: a time-limited test passes or fails depending on how loaded the CI runner
-// is, and a tactics suite that fails intermittently gets ignored. Every
-// position below is solved deterministically at kDepth on any machine.
-//
-// Embedded as a table rather than read from an .epd file so the test has no
-// working-directory dependency -- ctest, an IDE runner, and a bare
-// ./dahlia_unit_tests all behave identically. The `bm` field of each source
-// record is translated to UCI here; the WAC id is kept so a position can be
-// traced back to the published suite.
-//
-// What this suite is for: it is a *regression* test, not a strength estimate.
-// Milestone 4's move ordering and quiescence made the engine solve one more of
-// these than it did before (14/18 at depth 7, up from 13), and Milestone 5's
-// tapered piece-square tables took it to 15/18 -- see the known failures
-// below. The value of checking them in is that a future search change which
-// quietly stops finding one of them fails here instead of costing rating
-// points in a match nobody has run yet.
+// A checked-in subset of Win At Chess, embedded rather than read from an .epd so
+// the test has no working-directory dependency, and run at a fixed depth so it
+// can't fail intermittently on a loaded runner. This is a regression test, not a
+// strength estimate. See docs/testing.md.
 
 namespace {
 
@@ -36,24 +19,9 @@ struct AttackTableInit {
 	AttackTableInit() { init_attack_tables(); }
 } g_attack_table_init;
 
-// Deep enough that every position below is found, shallow enough that the
-// whole suite runs in a few seconds in a Debug build with sanitizers on.
-//
-// Raised from 7 to 10 at Milestone 6, when late move reductions changed what a
-// ply costs. LMR searches unpromising moves shallowly, so a nominal depth buys
-// less tree than it used to: at depth 7 this suite dropped to 13/18, with
-// WAC.001 and WAC.007 lost. Neither is a real regression -- run the same two
-// positions under a *time* limit, which is how the engine is actually used, and
-// they come back. The suite scores 15/18 at any movetime from 200 ms up, the
-// same 15 as at Milestone 5.
-//
-// So the depth moved rather than the known-failure list: 10 is where the engine
-// again solves everything it solved before, and it costs about what depth 7
-// cost beforehand (under a second for the whole suite in a release build),
-// because LMR made each ply so much cheaper. What this does mean is that the
-// depth is no longer comparable across milestones. The suite's claim from here
-// on is "the same three positions fail, and they fail on evaluation", not "N
-// solved at depth 7".
+// Raised from 7 at Milestone 6, when LMR made a nominal ply buy less tree. The
+// depth is no longer comparable across milestones; the suite's claim is "the
+// same three positions fail, on evaluation", not a solve count.
 constexpr int kDepth = 10;
 
 struct Puzzle {
@@ -62,8 +30,7 @@ struct Puzzle {
 	const char* best_move;  // UCI
 };
 
-// Solved at kDepth as of Milestone 5. Positions the engine does not yet solve
-// are listed in the test below this one rather than silently omitted.
+// Positions the engine does not solve are listed below rather than omitted.
 constexpr Puzzle kSolved[] = {
 	{"WAC.001", "2rr3k/pp3pp1/1nnqbN1p/3pN3/2pP4/2P3Q1/PPB4P/R4RK1 w - - 0 1", "g3g6"},
 	{"WAC.003", "5rk1/1ppb3p/p1pb4/6q1/3P1p1r/2P1R2P/PP1BQ1P1/5RKN w - - 0 1", "e3g3"},
@@ -79,12 +46,7 @@ constexpr Puzzle kSolved[] = {
 	{"WAC.014", "r2rb1k1/pp1q1p1p/2n1p1p1/2bp4/5P2/PP1BPR1Q/1BPN2PP/R5K1 w - - 0 1", "h3h7"},
 	{"WAC.015", "1R6/1brk2p1/4p2p/p1P1Pp2/P7/6P1/1P4P1/2R3K1 w - - 0 1", "b8b7"},
 	{"WAC.019", "r1bqrbn1/pp3ppp/2np4/2p5/2B1P3/2N2N2/PPP2PPP/R1BQR1K1 w - - 0 1", "c4f7"},
-	// Promoted out of the known-failure list by Milestone 5's tapered
-	// piece-square tables, which is the exact claim that list was checked in to
-	// make falsifiable. Black's ...Nf6-g4+ wins a pawn and activates the king
-	// in a pawn endgame; a material-only evaluation scored the resulting
-	// position level, because everything it changes -- king centralization,
-	// pawns nearer promotion -- was invisible to it.
+	// Promoted out of the known-failure list by Milestone 5's tapered PSTs.
 	{"WAC.022", "8/p7/1ppk1n2/5ppp/P1PP4/2P1K1P1/5N1P/8 b - - 0 1", "f6g4"},
 };
 
@@ -122,19 +84,10 @@ TEST_CASE("tactics: solves the checked-in Win At Chess subset", "[tactics][searc
 	}
 }
 
-// Recorded, not hidden. Each of these needs an evaluation term the engine
-// still doesn't have: WAC.002 and WAC.030 turn on king safety and the
-// attacking value of an exposed king, WAC.011 on the long-term worth of the
-// bishop pair against a structural weakness. Piece-square tables don't reach
-// any of that -- they score where a piece stands, not what it is doing -- so
-// these three survived Milestone 5 while WAC.022, which needed only king
-// centralization and pawn advancement, did not. Deeper search does not fix
-// them either: they fail identically at one second per move as at depth 7.
-//
-// This is a documentation test. It asserts nothing about the failures; it
-// exists so the list lives next to the suite it belongs to, and so that a
-// future milestone which starts solving them has an obvious place to move
-// the entry to -- as Milestone 5 just did.
+// Recorded, not hidden. WAC.002 and WAC.030 need king safety, WAC.011 the bishop
+// pair -- none of which piece-square tables reach, and none of which deeper
+// search fixes. A [!mayfail] documentation test: a milestone that starts solving
+// one of these has an obvious place to move the entry from.
 TEST_CASE("tactics: known failures are evaluation-limited, not search-limited",
           "[tactics][!mayfail]") {
 	constexpr Puzzle kKnownFailures[] = {

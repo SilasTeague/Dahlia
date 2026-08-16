@@ -11,13 +11,9 @@ constexpr int kIncrementDivisor = 2;  // ...plus half the increment the move ear
 constexpr long long kDefaultBudgetMs = 200;  // no time control at all (e.g. bare "go"): fixed anytime search budget
 constexpr long long kUnboundedBudgetMs = 24LL * 60 * 60 * 1000;  // "depth"/"infinite" cap the search instead of time
 
-// Hold back `overhead` ms so the engine answers *before* its deadline rather
-// than exactly on it: everything after the search returns -- serializing the
-// output, the write and flush, transport to the GUI -- happens on the GUI's
-// clock, and a GUI with a zero time margin (cutechess-cli's default) scores
-// an on-the-deadline reply as a forfeit. Never yields less than 1 ms: an
-// overhead larger than the budget means the engine is in desperate time
-// trouble and must still return something.
+// Answer before the deadline, not on it: everything after the search returns
+// happens on the GUI's clock, and a zero time margin scores that as a forfeit.
+// Never yields less than 1 ms -- the engine must still return something.
 long long minus_overhead(long long budget, long long overhead) {
 	return std::max(1LL, budget - overhead);
 }
@@ -31,17 +27,12 @@ long long time_budget_ms(const SearchLimits& limits, Color side_to_move) {
 
 	long long time_left = side_to_move == WHITE ? limits.wtime_ms : limits.btime_ms;
 	if (time_left < 0) {
-		// Neither branch is a GUI-imposed deadline, so neither needs the
-		// reserve: kUnboundedBudgetMs exists only to keep the deadline
-		// comparison well-formed until `stop` arrives, and kDefaultBudgetMs is
-		// a budget Dahlia picked for itself.
+		// Neither branch is a GUI-imposed deadline, so neither needs the reserve.
 		return (limits.infinite || limits.depth > 0) ? kUnboundedBudgetMs : kDefaultBudgetMs;
 	}
 
 	long long increment = side_to_move == WHITE ? limits.winc_ms : limits.binc_ms;
-	// base/20 + inc/2. `movestogo` only tightens the divisor: with fewer than
-	// 20 moves left before the next time control, 1/20th per move would leave
-	// time unspent at the control and risk flagging near it.
+	// `movestogo` only tightens the divisor, so time isn't left unspent at the control.
 	int divisor = limits.movestogo > 0 ? std::min(limits.movestogo, kBaseDivisor) : kBaseDivisor;
 	long long budget = std::min(time_left / divisor + increment / kIncrementDivisor, time_left / 2);
 	return minus_overhead(budget, overhead);

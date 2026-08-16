@@ -8,36 +8,14 @@ namespace eval {
 
 namespace {
 
-// Piece values and piece-square tables, one pair per piece: what the term is
-// worth with the queens still on (midgame) and what it is worth once they are
-// off (endgame). The two are blended per position by game phase -- see
-// evaluate() below.
-//
-// The numbers are PeSTO's (Ronald Friederich's rofChade tables, published on
-// the Chess Programming Wiki), used as published rather than hand-picked.
-// That is a deliberate choice worth stating plainly: piece-square values are
-// either fitted to game data or guessed, and a tuner of our own is a post-
-// Milestone-7 deliverable (REFERENCE.md's stretch goals). Borrowing a
-// published, tuned set now buys the strength this milestone is after without
-// pretending that eyeballed numbers are tuned ones. The tuner, when it lands,
-// replaces these values and gets measured against them.
-//
-// Orientation: every table below is written the way a board is printed, a8
-// first and h1 last, so the row nearest the top of the block is the rank
-// furthest from White. White's own squares are numbered the other way round in
-// this engine (a1 = 0), so a White piece reads the table at `square ^ 56` and a
-// Black piece -- whose position must be mirrored across the middle of the board
-// before it can be scored in White's frame -- reads it at `square`. Getting
-// this backwards is the classic PST bug (REFERENCE.md 3.6's "PST tables not
-// flipped correctly for Black"), which is why the mirror test in
-// test_eval.cpp asserts the result rather than the indexing.
+// PeSTO's published tables, used as-is; a tuner of our own replaces them later.
+// Written a8-first, the way a board is printed, so a White piece reads them at
+// `square ^ 56` and a Black piece at `square`. See docs/evaluation.md.
 constexpr int16_t kMgValue[6] = {82, 337, 365, 477, 1025, 0};
 constexpr int16_t kEgValue[6] = {94, 281, 297, 512, 936, 0};
 
 constexpr int16_t kMgTable[6][64] = {
-	// Pawn: rewarded for advancing, and for standing in the centre rather than
-	// on the wing. The back and front ranks are zero because a pawn is never on
-	// them.
+	// Pawn: advancing, and centre over wing.
 	{
 		  0,   0,   0,   0,   0,   0,   0,   0,
 		 98, 134,  61,  95,  68, 126,  34, -11,
@@ -48,9 +26,7 @@ constexpr int16_t kMgTable[6][64] = {
 		-35,  -1, -20, -23, -15,  24,  38, -22,
 		  0,   0,   0,   0,   0,   0,   0,   0,
 	},
-	// Knight: the sharpest table of the six. A knight on the rim reaches at
-	// most four squares; one in the centre reaches eight, and the table's
-	// -167 corner against +65 centre is that ratio priced in centipawns.
+	// Knight: the sharpest table of the six -- rim versus centre reach, priced.
 	{
 		-167, -89, -34, -49,  61, -97, -15, -107,
 		 -73, -41,  72,  36,  23,  62,   7,  -17,
@@ -61,8 +37,7 @@ constexpr int16_t kMgTable[6][64] = {
 		 -29, -53, -12,  -3,  -1,  18, -14,  -19,
 		-105, -21, -58, -33, -17, -28, -19,  -23,
 	},
-	// Bishop: long diagonals over short ones, and fianchetto squares over the
-	// back rank it started on.
+	// Bishop: long diagonals over short, fianchetto over the back rank.
 	{
 		-29,   4, -82, -37, -25, -42,   7,  -8,
 		-26,  16, -18, -13,  30,  59,  18, -47,
@@ -73,8 +48,7 @@ constexpr int16_t kMgTable[6][64] = {
 		  4,  15,  16,   0,   7,  21,  33,   1,
 		-33,  -3, -14, -21, -13, -12, -39, -21,
 	},
-	// Rook: the seventh rank and the central files, and a penalty for sitting
-	// on h1 behind an uncastled king.
+	// Rook: seventh rank and central files; h1 behind an uncastled king is penalised.
 	{
 		 32,  42,  32,  51,  63,   9,  31,  43,
 		 27,  32,  58,  62,  80,  67,  26,  44,
@@ -85,9 +59,7 @@ constexpr int16_t kMgTable[6][64] = {
 		-44, -16, -20,  -9,  -1,  11,  -6, -71,
 		-19, -13,   1,  17,  16,   7, -37, -26,
 	},
-	// Queen: nearly flat, which is the point -- a queen is worth what it is
-	// worth almost anywhere, and the table mostly discourages developing it
-	// early into the middle of the board.
+	// Queen: nearly flat by design; mostly discourages developing it early.
 	{
 		-28,   0,  29,  12,  59,  44,  43,  45,
 		-24, -39,  -5,   1, -16,  57,  28,  54,
@@ -98,10 +70,7 @@ constexpr int16_t kMgTable[6][64] = {
 		-35,  -8,  11,   2,   8,  15,  -3,   1,
 		 -1, -18,  -9,  10, -15, -25, -31, -50,
 	},
-	// King, midgame: castled and behind its own pawns. g1 (+24) and c1 (+12)
-	// against d1 (-54) and the open centre is the whole of this engine's king
-	// safety -- there is no pawn-shield term, only the standing instruction to
-	// get out of the middle.
+	// King: castled and behind its own pawns -- the whole of this engine's king safety.
 	{
 		-65,  23,  16, -15, -56, -34,   2,  13,
 		 29,  -1, -20,  -7,  -8,  -4, -38, -29,
@@ -115,9 +84,7 @@ constexpr int16_t kMgTable[6][64] = {
 };
 
 constexpr int16_t kEgTable[6][64] = {
-	// Pawn, endgame: passed-pawn pressure without a passed-pawn detector. A
-	// pawn one square from promoting is worth +178 here against +98 in the
-	// midgame table, which is how a material-only search learns to push it.
+	// Pawn: passed-pawn pressure without a passed-pawn detector.
 	{
 		  0,   0,   0,   0,   0,   0,   0,   0,
 		178, 173, 158, 134, 147, 132, 165, 187,
@@ -128,9 +95,7 @@ constexpr int16_t kEgTable[6][64] = {
 		 13,   8,   8,  10,  13,   0,   2,  -7,
 		  0,   0,   0,   0,   0,   0,   0,   0,
 	},
-	// Knight, endgame: still centralized, but the spread is half the midgame
-	// table's -- with fewer pieces left there is less to attack from the
-	// outpost.
+	// Knight: still centralized, but half the midgame spread.
 	{
 		-58, -38, -13, -28, -31, -27, -63, -99,
 		-25,  -8, -25,  -2,  -9, -25, -24, -52,
@@ -141,8 +106,7 @@ constexpr int16_t kEgTable[6][64] = {
 		-42, -20, -10,  -5,  -2, -20, -23, -44,
 		-29, -51, -23, -15, -22, -18, -50, -64,
 	},
-	// Bishop, endgame: nearly flat and slightly positive in the centre -- an
-	// open board is a bishop's board wherever it stands.
+	// Bishop: nearly flat -- an open board is a bishop's board wherever it stands.
 	{
 		-14, -21, -11,  -8,  -7,  -9, -17, -24,
 		 -8,  -4,   7, -12,  -3, -13,  -4, -14,
@@ -153,8 +117,7 @@ constexpr int16_t kEgTable[6][64] = {
 		-14, -18,  -7,  -1,   4,  -9, -15, -27,
 		-23,  -9, -23,  -5,  -9, -16,  -5, -17,
 	},
-	// Rook, endgame: flat. A rook's endgame value is in activity the table
-	// can't see, so it declines to guess.
+	// Rook: flat, since its endgame value is in activity the table can't see.
 	{
 		13, 10, 18, 15, 12,  12,   8,   5,
 		11, 13, 13, 11, -3,   3,   8,   3,
@@ -165,8 +128,7 @@ constexpr int16_t kEgTable[6][64] = {
 		-6, -6,  0,  2, -9,  -9, -11,  -3,
 		-9,  2,  3, -1, -5, -13,   4, -20,
 	},
-	// Queen, endgame: unlike the midgame table, actively rewards centralizing
-	// -- with the enemy pieces traded off there is nothing left to harass it.
+	// Queen: rewards centralizing, with nothing left to harass it.
 	{
 		 -9,  22,  22,  27,  27,  19,  10,  20,
 		-17,  20,  32,  41,  58,  25,  30,   0,
@@ -177,10 +139,7 @@ constexpr int16_t kEgTable[6][64] = {
 		-22, -23, -30, -16, -16, -23, -36, -32,
 		-33, -28, -22, -43,  -5, -32, -20, -41,
 	},
-	// King, endgame: the sign flip that makes tapering worth doing at all. The
-	// same e1 square the midgame table pays +8 to sit on is worth -28 here,
-	// and the centre it pays -46 to enter is worth +27 -- because once the
-	// queens are off the king stops being a target and starts being a piece.
+	// King: the sign flip that makes tapering worth doing -- the king becomes a piece.
 	{
 		-74, -35, -18, -18, -11,  15,   4, -17,
 		-12,  17,  14,  17,  17,  38,  23,  11,
@@ -193,12 +152,7 @@ constexpr int16_t kEgTable[6][64] = {
 	},
 };
 
-// Game phase, counted in the material still on the board rather than in move
-// number: 24 is a full complement of pieces, 0 is bare kings and pawns.
-// Counting pieces rather than moves means the phase tracks what the tables
-// actually disagree about -- whether there is anything left to attack the king
-// with -- and it needs no history, so a position pasted in from a FEN is
-// scored exactly as one reached by playing into it.
+// Game phase in non-pawn material: 24 is a full board, 0 is bare kings and pawns.
 constexpr int kPhaseWeight[6] = {0, 1, 1, 2, 4, 0};
 constexpr int kTotalPhase = 24;
 
@@ -206,22 +160,14 @@ constexpr int kTotalPhase = 24;
 
 int16_t piece_value(Piece piece) {
 	if (piece > KING) return 0;
-	// The larger of the two values, deliberately. The only caller is the
-	// search's delta pruning, which asks "could winning this piece plausibly
-	// reach alpha?" and must never answer no when the answer is yes --
-	// a rook is worth 477 in the midgame and 512 in the endgame, and the
-	// pruning margin has to hold at both ends.
+	// The larger of the two, so delta pruning's margin holds at both ends of the taper.
 	return kMgValue[piece] > kEgValue[piece] ? kMgValue[piece] : kEgValue[piece];
 }
 
 int16_t evaluate(const Position& pos) {
-	// Two scores are accumulated at once -- what the position is worth with a
-	// full board and what it is worth in an endgame -- and blended at the end.
-	// Scoring twice and interpolating, rather than picking one table by a
-	// phase threshold, is what keeps the evaluation continuous: a threshold
-	// makes the score jump the moment a queen comes off, and the search will
-	// happily play a bad trade to land on the favourable side of a
-	// discontinuity it can see.
+	// Scored twice and interpolated, not selected by a phase threshold: a
+	// threshold makes the score jump when a queen comes off, and the search
+	// will play a bad trade to land on the favourable side of it.
 	int midgame = 0;
 	int endgame = 0;
 	int phase = 0;
@@ -234,7 +180,7 @@ int16_t evaluate(const Position& pos) {
 				int square = std::countr_zero(remaining);
 				remaining &= remaining - 1;
 
-				// See the orientation note above the tables.
+				// Orientation: see the note above the tables.
 				int index = color == WHITE ? square ^ 56 : square;
 				midgame += sign * (kMgValue[piece] + kMgTable[piece][index]);
 				endgame += sign * (kEgValue[piece] + kEgTable[piece][index]);
@@ -243,9 +189,7 @@ int16_t evaluate(const Position& pos) {
 		}
 	}
 
-	// Promotions can put more material on the board than the game started
-	// with, which would otherwise extrapolate past the midgame table rather
-	// than interpolating between the two.
+	// Promotions can exceed the starting material, which would extrapolate past the midgame table.
 	if (phase > kTotalPhase) phase = kTotalPhase;
 
 	int score = (midgame * phase + endgame * (kTotalPhase - phase)) / kTotalPhase;

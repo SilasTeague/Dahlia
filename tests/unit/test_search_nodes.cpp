@@ -8,26 +8,11 @@
 #include "position/position.h"
 #include "search/search.h"
 
-// Node-count regression test (REFERENCE.md 1.6/3.11): the number of nodes a
-// fixed-depth search visits, pinned to a checked-in table.
-//
-// This is a golden-file test, not a benchmark. Node count at a fixed depth is
-// deterministic -- no time-based cutoff applies (time_budget_ms returns its
-// unbounded value whenever a depth limit is set), the TT is constructed fresh
-// per search, and evaluation is integer arithmetic -- so the same engine
-// returns the identical count on any machine, compiler, or optimization level.
-// That determinism is what lets this run in ordinary CI with no tolerance band,
-// no repetitions, and no timing: any change here is a real change in the shape
-// of the search tree.
-//
-// It is expected to fail whenever search or movegen changes on purpose. When it
-// does, update the table below in the same PR -- the diff is then the
-// regression report, showing exactly what the change did to the tree (see
-// REFERENCE.md 3.11's "nodes to reach depth N" as the metric of record).
-//
-// Wall-clock performance is deliberately not measured here. Timing is only
-// comparable within one machine, so it lives in scripts/run_benchmarks.sh and
-// the history under bench/results/.
+// A golden-file test, not a benchmark: node count at a fixed depth is
+// deterministic on any machine, compiler or optimization level, so it runs in CI
+// with no tolerance band. It is expected to fail whenever search or movegen
+// changes on purpose -- update the table below in the same PR and the diff
+// becomes the regression report. See docs/benchmarking.md.
 
 namespace {
 
@@ -40,61 +25,15 @@ struct NodeBudget {
 	const char* fen;
 	int depth;
 	uint64_t nodes;
-	// What the search concluded, alongside how much tree it walked. A pure
-	// efficiency change -- ordering, PVS, a bigger table -- moves the node
-	// count and leaves these two alone, and that is the distinction the table
-	// exists to make visible: a diff that moves the score is either an
-	// evaluation change or a pruning heuristic that has started guessing.
+	// What the search concluded: a pure efficiency change moves the node count and
+	// leaves these two alone, which is the distinction the table exists to make.
 	int16_t score;
 	const char* best_move;  // UCI
 };
 
-// Same positions as bench/search_bench/bench_search.cpp, so a node count seen
-// here and one seen in the benchmark history refer to the same search.
-//
-// These counts include quiescence nodes, which is why two of the first three
-// went *up* at Milestone 4 even though move ordering cut the main tree sharply:
-// depth 5 now means five plies plus however many captures are pending at each
-// leaf. The comparable pre-quiescence numbers were 34,195 / 145,195 / 820. The
-// figure that shows the ordering work is nodes-to-depth-7, which fell from
-// 828,549 to 370,254 (opening) and 4,866,267 to 2,431,525 (middlegame) across
-// the same milestone -- see bench/results/history/.
-//
-// The tactical position was added at Milestone 5, filling the tactical slot
-// REFERENCE.md 3.11 asks the macrobenchmark position set to cover; its
-// Milestone 3 baseline at this depth was 458,327 nodes.
-//
-// Milestone 5's tapered piece-square tables raised all four counts by 1-20%
-// (23,023 / 161,277 / 1,411 / 151,544 before). That is the expected direction
-// and not a regression in the search: a positional evaluation returns far
-// fewer equal scores than a material-only one did, so fewer sibling moves
-// share a value and the cheap cutoffs that came from ties disappear. What the
-// tables buy is bought in strength, measured by the tactics suite, not here.
-//
-// PVS then took them back down (26,959 / 193,194 / 1,427 / 159,796 before it)
-// without moving a single score or best move below -- which is the whole claim
-// PVS makes, pinned here rather than asserted in a comment.
-//
-// Null-move pruning took another 11-83% (26,183 / 152,499 / 1,330 / 156,240
-// before it), and the endgame's exact 1,330 is the interesting number: it did
-// not move at all, because that position is a king and a pawn and the zugzwang
-// guard switches the heuristic off there entirely. The one position null-move
-// pruning cannot help is the one it would otherwise get wrong -- see
-// test_nullmove.cpp.
-//
-// Milestone 6's late move reductions then took 44-81% off again (21,337 /
-// 136,030 / 1,330 / 25,809 before them), the largest single-change reduction in
-// the project. Unlike every step above it, this one is *not* a pure efficiency
-// change and the table records that honestly: the endgame's score moved by two
-// centipawns (110 -> 108) and the opening changed its mind between two moves it
-// scores identically (g1f3 -> d2d4, both 33). LMR searches unpromising moves
-// shallowly and accepts a fail-low without verifying it, so it is allowed to
-// reach a different conclusion -- which is exactly why the conclusions live in
-// their own test below rather than being folded into the node count.
-//
-// Aspiration windows, landing alongside them, are the opposite kind of change
-// and cost nothing here: at depth 5 they are below kAspirationMinDepth and
-// never engage at all.
+// The same four positions as bench/search_bench, at a fixed 16 MB hash, counting
+// quiescence nodes. Every value this table has ever held, and why each moved:
+// docs/benchmarking.md#how-the-pinned-table-has-moved.
 constexpr NodeBudget kExpected[] = {
 	{"opening", "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 5, 4260, 33, "d2d4"},
 	{"middlegame (Kiwipete)",
@@ -109,8 +48,8 @@ search::SearchResult search_at_depth(const char* fen, int depth) {
 	search::SearchLimits limits;
 	limits.depth = depth;
 	search::TranspositionTable tt(16);
-	// Fresh per search, like the table above: a history table carried between
-	// positions would make these counts depend on what ran before them.
+	// Fresh per search: carried between positions it would make these counts
+	// depend on what ran before them.
 	search::HistoryTable move_history;
 	std::atomic<bool> stop{false};
 	return search::think(pos, limits, tt, move_history, stop);
@@ -143,17 +82,9 @@ TEST_CASE("search: fixed-depth node counts match the recorded baseline", "[searc
 	}
 }
 
-// The other half of the same table, split out because the two failures mean
-// opposite things. A node count that moves is a search that got cheaper or
-// dearer; a score or best move that moves is a search that changed its mind,
-// and only an evaluation change or a heuristic that prunes something real
-// should be able to do that.
-//
-// Since Milestone 6 the engine contains one heuristic of exactly that second
-// kind -- late move reductions -- so this test is no longer expected to hold
-// across every search change, only to make a changed conclusion impossible to
-// land by accident. An LMR tuning change that moves a score here is legitimate;
-// it just has to be argued for rather than absorbed silently into a node count.
+// Split out because the two failures mean opposite things: a moved node count is
+// a search that got cheaper, a moved score is one that changed its mind. LMR is
+// allowed to do the second, so this makes it deliberate rather than impossible.
 TEST_CASE("search: fixed-depth conclusions match the recorded baseline", "[search][nodes]") {
 	for (const NodeBudget& expected : kExpected) {
 		INFO("position: " << expected.name << " at depth " << expected.depth
@@ -165,20 +96,9 @@ TEST_CASE("search: fixed-depth conclusions match the recorded baseline", "[searc
 	}
 }
 
-// The TT is an optimization: it may change how much tree the search walks, but
-// never what the search concludes.
-//
-// Node count deliberately isn't asserted here -- it legitimately falls as the
-// table grows, because a bigger table evicts fewer entries and so produces more
-// cutoffs (measured at Milestone 4: 164,722 nodes at 1 MB down to 161,277 at
-// 16 MB, flat from there to 256 MB once replacement stops thrashing). That is
-// why kExpected above pins a hash size:
-// 16 MB is part of the specification of those numbers, not an incidental choice.
-//
-// The score is the invariant, and it is the one that catches the failure mode
-// REFERENCE.md 3.7 warns about: a probe that returns an entry belonging to a
-// different position would change the score, which a verified key comparison is
-// supposed to make impossible.
+// The TT may change how much tree is walked, never what the search concludes.
+// Node count is deliberately not asserted -- it legitimately falls as the table
+// grows -- but the score catches a probe returning another position's entry.
 TEST_CASE("search: result is independent of transposition table size", "[search][nodes][tt]") {
 	auto search_with_hash = [](size_t megabytes) {
 		Position pos = parse_fen(kExpected[1].fen);
