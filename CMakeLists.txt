@@ -46,6 +46,28 @@ dahlia_set_warnings(dahlia)
 dahlia_enable_sanitizers(dahlia)
 dahlia_enable_tsan(dahlia)
 
+# `--profile` sampling profiler, from github.com/SilasTeague/sampling-profiler.
+# strobe::sampler relies on Darwin/arm64-only APIs, so it only exists on
+# Apple, and profile_mode.cpp is only built there too.
+if (APPLE)
+	include(FetchContent)
+	FetchContent_Declare(strobe
+		GIT_REPOSITORY https://github.com/SilasTeague/sampling-profiler.git
+		GIT_TAG 0f2f8ab
+	)
+	set(STROBE_BUILD_CLI OFF CACHE BOOL "" FORCE)
+	set(STROBE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+	FetchContent_MakeAvailable(strobe)
+
+	add_library(dahlia_profiling src/profiling/profile_mode.cpp)
+	target_include_directories(dahlia_profiling PUBLIC ${CMAKE_SOURCE_DIR}/src)
+	target_link_libraries(dahlia_profiling PUBLIC strobe::sampler strobe::aggregator)
+	dahlia_set_warnings(dahlia_profiling)
+
+	target_link_libraries(dahlia PRIVATE dahlia_profiling)
+	target_compile_definitions(dahlia PRIVATE DAHLIA_PROFILING_ENABLED)
+endif()
+
 if (DAHLIA_BUILD_TESTS OR DAHLIA_BUILD_BENCHMARKS)
 	include(cmake/FetchDeps.cmake)
 endif()
