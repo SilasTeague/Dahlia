@@ -15,7 +15,7 @@ asynchronous UCI loop that stays responsive mid-search.
 | | |
 |---|---|
 | ▶ **[silasteague.com/chess](https://silasteague.com/chess)** | Pick a side and a time control and play in the browser. Runs the same statically-linked binary this repository publishes on every `v*` tag. |
-| ♞ **[lichess.org/@/DahliaBot](https://lichess.org/@/DahliaBot)** | **2108 blitz** over 147 games (86 W / 16 D / 45 L) as of 2026-08-16. A rating still in motion over a small sample — always quoted with its date and game count. |
+| ♞ **[lichess.org/@/DahliaBot](https://lichess.org/@/DahliaBot)** | **2113 blitz** over 149 games (88 W / 16 D / 45 L) as of 2026-08-20. A rating still in motion over a small sample — always quoted with its date and game count. |
 
 ## Build
 
