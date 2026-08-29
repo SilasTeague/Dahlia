@@ -27,12 +27,17 @@ COPY src/ src/
 #   TESTS/BENCH  off, because leaving them on makes CMake fetch Catch2 and
 #                Google Benchmark over the network to build targets this image
 #                never runs.
+#
+#   TOOLS        off for the same reason: tools/magicgen is a developer tool
+#                whose output is already checked in, so the shipped image has
+#                no reason to compile it.
 RUN cmake -S . -B build -G Ninja \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DCMAKE_CXX_FLAGS="-O3" \
         -DCMAKE_EXE_LINKER_FLAGS="-static" \
         -DDAHLIA_BUILD_TESTS=OFF \
         -DDAHLIA_BUILD_BENCHMARKS=OFF \
+        -DDAHLIA_BUILD_TOOLS=OFF \
     && cmake --build build
 
 # Debug info is most of the file size and is useless without the build tree.

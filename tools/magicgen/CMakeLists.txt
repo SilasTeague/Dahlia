@@ -1,0 +1,3 @@
+add_executable(dahlia_magicgen magicgen.cpp)
+target_link_libraries(dahlia_magicgen PRIVATE dahlia_core)
+dahlia_set_warnings(dahlia_magicgen)

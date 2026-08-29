@@ -46,7 +46,8 @@ cmake -S "$ROOT_DIR" -B "$BUILD_DIR" \
 	-DCMAKE_BUILD_TYPE=RelWithDebInfo \
 	-DCMAKE_CXX_FLAGS="$CXX_FLAGS" \
 	-DDAHLIA_BUILD_TESTS=OFF \
-	-DDAHLIA_BUILD_BENCHMARKS=ON
+	-DDAHLIA_BUILD_BENCHMARKS=ON \
+	-DDAHLIA_BUILD_TOOLS=OFF
 cmake --build "$BUILD_DIR" --parallel --target dahlia_microbench dahlia_search_bench
 
 # Repetitions + aggregates-only: the median is what gets recorded, and the

@@ -53,10 +53,16 @@ possible, and either scheduled or deliberately accepted.
 
 ## Movegen
 
-- **Sliding attacks are a loop/bit-shift ray walk**, not magic bitboards. That is
-  deliberate staging rather than an oversight — see
-  [roadmap.md](roadmap.md#beyond-milestone-7) — but it is real speed left on the
-  table today.
+- **There is no dedicated capture generator.** Quiescence filters a full
+  pseudo-legal list to find the captures it wants, so the quiet moves are
+  generated and discarded. Staged move generation is the fix and is named as a
+  future extension, not scheduled
+  ([ADR 0005](adr/0005-quiescence-pseudo-legal-movegen.md)).
+- **Sliding attacks use magic multiplication, not PEXT.** On a BMI2 x86-64 CPU
+  `_pext_u64` would be faster still, but it is ruinously slow on pre-Zen 3 AMD
+  and absent on arm64, which is one of the two binaries every release ships. It
+  belongs behind a runtime CPU check, and that is not written
+  ([ADR 0007](adr/0007-magic-bitboards.md)).
 
 ## Measurement
 

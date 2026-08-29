@@ -1,6 +1,7 @@
 add_executable(dahlia_unit_tests
 	test_placeholder.cpp
 	test_position_fen.cpp
+	test_magics.cpp
 	test_make_unmake.cpp
 	test_uci.cpp
 	test_eval.cpp

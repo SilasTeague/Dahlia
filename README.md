@@ -90,10 +90,12 @@ did.
 The operating discipline is **Correctness → Measurement → Optimization, never
 the reverse**. Dahlia deliberately ships the slow, obviously-correct
 implementation first and only replaces it once a benchmark baseline exists to
-measure the replacement against. Sliding attacks are still a loop/bit-shift ray
-walk for exactly that reason; the transposition table was added after plain
-alpha-beta worked, so its effect could be quoted as a real before/after delta
-rather than assumed.
+measure the replacement against. Sliding attacks stayed a loop/bit-shift ray
+walk from Milestone 1 to Milestone 7 for exactly that reason, so the magic
+bitboards that eventually replaced them could be quoted as a 16× lookup speedup
+against the baseline recorded when the ray walker shipped rather than asserted; the
+transposition table was added after plain alpha-beta worked, for the same
+reason.
 
 Every performance claim is reproducible from committed benchmark JSON and pinned
 positions. The full record, milestone by milestone, is in
@@ -104,6 +106,7 @@ positions. The full record, milestone by milestone, is in
 | | |
 |---|---|
 | [Architecture](docs/architecture.md) | module graph, data flow, structural properties |
+| [Move generation](docs/movegen.md) | leaper tables, magic bitboards, where the magic numbers come from |
 | [Search](docs/search.md) | ordering, quiescence, TT, PVS, null-move, aspiration, LMR |
 | [Evaluation](docs/evaluation.md) | tapered piece-square tables and game phase |
 | [Results](docs/results.md) | every measured number, with the commits behind it |
