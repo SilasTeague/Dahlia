@@ -4,7 +4,7 @@ Chess engines fail in ways that are easy to miss and cheap to catch, so the test
 strategy leans hard on oracles rather than on assertions written by the same
 person who wrote the bug.
 
-90 Catch2 test cases across 15 unit files, plus a perft suite. Philosophy and
+94 Catch2 test cases across 16 unit files, plus a perft suite. Philosophy and
 requirements: [REFERENCE.md §1.6](REFERENCE.md#16-testing-philosophy).
 
 ```bash
@@ -45,11 +45,17 @@ inside a CI time budget; run them explicitly with:
 Perft uses the real `make_move`/`unmake_move` rather than a copy-per-node
 shortcut, so it exercises the undo path the search depends on.
 
+It is also the backstop for magic bitboards. Sliding attacks feed every legal
+move, so one wrong entry among 107,648 moves a perft count — the deep suite
+(317 million nodes) matching exactly is a stronger statement about the tables
+than any assertion written by hand.
+
 ## Unit and regression tests
 
 | File | What it pins |
 |---|---|
 | `test_position_fen.cpp` | FEN parse, serialize and round-trip, including partial castling rights and en passant |
+| `test_magics.cpp` | every one of the 107,648 magic table entries against the ray walker it replaced — see below |
 | `test_make_unmake.cpp` | a round-trip property test asserting the position *and* Zobrist key are restored bit-for-bit, over five structurally different positions |
 | `test_eval.cpp` | evaluation symmetry under a colour-swapped mirror — the sign-error bug class that is notoriously hard to notice by playing |
 | `test_search.cpp` | finds a back-rank mate in one, wins a free rook, declines a poisoned pawn a depth-1 search would grab |
@@ -64,7 +70,23 @@ shortcut, so it exercises the undo path the search depends on.
 | `test_tactics.cpp` | a Win At Chess subset with a documented known-failure list |
 | `test_uci.cpp` | scripted protocol sequences over an injected `istream`/`ostream`, including the concurrency cases |
 
-Two of these are worth more detail.
+Three of these are worth more detail.
+
+### Magic tables against the code they replaced (`test_magics.cpp`)
+
+Magic bitboards swap a computation for a table, so what has to be proved is that
+the table says what the computation said. The ray walker is still in the binary
+for exactly this reason, and the test is exhaustive rather than sampled: all
+102,400 rook and 5,248 bishop mask subsets — **every occupancy either lookup can
+ever be handed** — must produce the ray walker's answer. The count is asserted
+too, so a mask that quietly lost a bit fails as the wrong number of checks
+rather than as 102,400 easier ones.
+
+Three narrower cases sit beside it, because the exhaustive test only ever passes
+subsets of the mask and real callers pass whole boards: a dense board with bits
+set on the edges the mask deliberately drops, the empty and full boards, and the
+mask/shift invariants themselves. Full reasoning in
+[movegen.md](movegen.md#how-it-is-verified).
 
 ### Re-search correctness (`test_research.cpp`)
 

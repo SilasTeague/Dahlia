@@ -24,7 +24,7 @@ core  ←  movegen  ←  position  ←  search  ←  uci
 | Module | Owns | Deliberately *not* responsible for |
 |---|---|---|
 | `core/` | `Bitboard`, `Square`, `Piece`, `Color`, `CastlingRights`, `Move` | any chess *rules* logic |
-| `movegen/` | attack tables, ray-walk sliding attacks, pseudo-legal + legal generation | knowing about search or eval |
+| `movegen/` | leaper attack tables, magic-bitboard sliding attacks, pseudo-legal + legal generation | knowing about search or eval |
 | `position/` | board state, FEN in/out, make/unmake, Zobrist hashing, repetition history | scoring or choosing moves |
 | `eval/` | material + tapered piece-square tables | anything search-dependent |
 | `search/` | negamax alpha-beta with PVS, iterative deepening, TT, move ordering, quiescence, null-move pruning, aspiration windows, LMR, time budget | I/O of any kind |
@@ -62,6 +62,14 @@ thread. Everything either thread writes to stdout passes through a single
 mutex.
 
 ## Structural properties
+
+**Sliding attacks are a table lookup, and the code they replaced is the test
+oracle.** `rook_attacks`/`bishop_attacks` index a magic-bitboard table built at
+startup by the ray walker that used to compute them live; `test_magics.cpp` then
+re-derives all 107,648 entries through the lookup and requires them to match.
+The walker is on no search path and is not dead code — it is what makes the
+tables checkable ([ADR 0007](adr/0007-magic-bitboards.md),
+[movegen.md](movegen.md)).
 
 **Pseudo-legal generation plus a legality filter**, rather than fully-legal
 generation up front. The hot generation loop stays simple and independently
@@ -115,7 +123,7 @@ Dahlia/
 ├── Makefile                # thin wrapper over the presets, no logic of its own
 ├── src/
 │   ├── core/               # types.h, move.h
-│   ├── movegen/            # attack tables, ray-walk sliding attacks, generation
+│   ├── movegen/            # leaper tables, magic-bitboard sliding attacks, generation
 │   ├── position/           # Position, FEN, make/unmake, Zobrist, repetition history
 │   ├── eval/               # material + tapered piece-square tables
 │   ├── search/             # PVS negamax + iterative deepening, TT, ordering, pruning, clock
@@ -128,6 +136,8 @@ Dahlia/
 │   ├── microbench/         # Google Benchmark: attacks, move generation, evaluation
 │   ├── search_bench/       # fixed-depth whole-engine search on a fixed position set
 │   └── results/history/    # committed JSON, one file per benchmark run
+├── tools/
+│   └── magicgen/           # offline search for the checked-in magic multipliers
 ├── docs/                   # this directory — architecture, subsystems, results, ADRs
 ├── scripts/                # run_benchmarks.sh, compare_bench_results.py, build-release.sh
 ├── docker/                 # Dockerfile.release — static build + shipped-artifact smoke test

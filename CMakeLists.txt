@@ -7,6 +7,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(DAHLIA_BUILD_TESTS "Build the Catch2 unit test suite" ON)
 option(DAHLIA_BUILD_BENCHMARKS "Build the Google Benchmark microbenchmarks and search_bench" ON)
+option(DAHLIA_BUILD_TOOLS "Build the developer tools under tools/" ON)
 option(DAHLIA_ENABLE_SANITIZERS "Build with ASan+UBSan" OFF)
 option(DAHLIA_ENABLE_TSAN "Build with ThreadSanitizer" OFF)
 option(DAHLIA_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
@@ -24,6 +25,7 @@ find_package(Threads REQUIRED)
 add_library(dahlia_core
 	src/eval/evaluate.cpp
 	src/movegen/attacks.cpp
+	src/movegen/magics.cpp
 	src/movegen/movegen.cpp
 	src/position/history.cpp
 	src/position/position.cpp
@@ -66,6 +68,10 @@ if (APPLE)
 
 	target_link_libraries(dahlia PRIVATE dahlia_profiling)
 	target_compile_definitions(dahlia PRIVATE DAHLIA_PROFILING_ENABLED)
+endif()
+
+if (DAHLIA_BUILD_TOOLS)
+	add_subdirectory(tools/magicgen)
 endif()
 
 if (DAHLIA_BUILD_TESTS OR DAHLIA_BUILD_BENCHMARKS)

@@ -28,6 +28,7 @@ How the measurements are produced, and why timing is not in CI, is in
 - [Milestone 6 — late move reductions](#late-move-reductions-milestone-6)
 - [Milestone 6 end to end](#milestone-6-end-to-end)
 - [Movegen baseline](#movegen-baseline)
+- [Milestone 7 — magic bitboards](#magic-bitboards-milestone-7)
 - [A note on the numbers before 2026-08-14](#a-note-on-the-numbers-before-2026-08-14)
 
 ---
@@ -497,8 +498,9 @@ project where the two have been told apart by evidence instead of argument.
 
 ## Movegen baseline
 
-The loop/bit-shift ray walker, unchanged since Milestone 1 — this is the number a
-future magic-bitboard implementation gets measured against:
+The loop/bit-shift ray walker, unchanged from Milestone 1 until Milestone 7 —
+this is the number the [magic-bitboard swap](#magic-bitboards-milestone-7) was
+measured against:
 
 | Benchmark | 2026-07-26 | 2026-08-03 |
 |---|---:|---:|
@@ -507,9 +509,130 @@ future magic-bitboard implementation gets measured against:
 | `BM_QueenAttacksLookup` | 14.52 ns | 13.57 ns |
 | `BM_GeneratePseudoLegalMoves_StartPosition` | 81.20 ns | 76.28 ns |
 
-No movegen optimization has been attempted yet, so these deltas are run-to-run
-drift on identical code — mostly inside the ±5% band the framework treats as
-noise. They are listed to establish the baseline, not to claim a win.
+No movegen optimization had been attempted at that point, so these deltas are
+run-to-run drift on identical code — mostly inside the ±5% band the framework
+treats as noise. They were listed to establish the baseline, not to claim a win.
+
+They held that role until Milestone 7: the ray walker was still measuring
+8.55 ns on the same benchmark the day it was replaced.
+
+## Magic bitboards (Milestone 7)
+
+Sliding-piece attacks were a loop/bit-shift ray walk from Milestone 1 until
+here, on purpose — the baseline below is what this change was measured against.
+The profiler is what said *now*: `sliding_attacks` took 13.4% of self-time
+samples in a profiled search, tied with `make_move` for the largest single entry
+in the engine, with a further 4.6% inside `is_attacked`. How the
+replacement works is [movegen.md](movegen.md#magic-bitboards); why it is shaped
+the way it is, [ADR 0007](adr/0007-magic-bitboards.md).
+
+### The lookup itself
+
+From the committed history, `2026-08-15 6cee021` → `2026-08-28 e3d64fa`, median
+of 5 repetitions, Apple M2, `RelWithDebInfo` at `-O2 -g`:
+
+| Benchmark | Ray walk | Magic | Δ |
+|---|---:|---:|---:|
+| `BM_RookAttacksLookup` | 8.65 ns | **0.527 ns** | −93.9% |
+| `BM_BishopAttacksLookup` | 5.39 ns | **0.522 ns** | −90.3% |
+| `BM_QueenAttacksLookup` | 14.1 ns | **1.11 ns** | −92.1% |
+| `BM_GeneratePseudoLegalMoves_StartPosition` | 80.8 ns | 74.3 ns | −7.9% |
+
+The last row is the honest one. A 16× win on the lookup is an 8% win on
+generating the start position's moves, where both bishops and both rooks are
+walled in behind their own pieces and the pawn and knight loops dominate. The
+lookup rows and the generation row are the same change measured at two
+altitudes, and only the second one is a claim about move generation.
+
+Both sides of that comparison are also in the *same binary*: the retained ray
+walker is benchmarked as `BM_RookAttacksLookup_Ray` and friends, with bodies
+identical to the magic versions.
+
+| Same binary, same run | Ray | Magic |
+|---|---:|---:|
+| Rook | 8.38 ns | 0.527 ns |
+| Bishop | 5.27 ns | 0.522 ns |
+| Queen | 14.0 ns | 1.11 ns |
+
+That is what makes this an A/B rather than a comparison of two builds, and it is
+why the row above can be read as a result rather than as two numbers measured a
+fortnight apart.
+
+### The whole engine
+
+Depth 5 on the four pinned positions, same two history files:
+
+| | Opening | Middlegame | Endgame (K+P) | Tactical |
+|---|---:|---:|---:|---:|
+| Time, ray walk | 0.906 ms | 9.75 ms | 0.0938 ms | 1.45 ms |
+| Time, magic | **0.771 ms** | **8.37 ms** | **0.0661 ms** | **1.37 ms** |
+| Δ | −14.9% | −14.1% | −29.5% | −5.3% |
+| Nodes/sec, ray walk | 4.70 M | 2.66 M | 7.91 M | 5.18 M |
+| Nodes/sec, magic | **5.53 M** | **3.11 M** | **11.22 M** | **5.51 M** |
+| Nodes | 4,260 | 25,959 | 742 | 7,510 |
+
+**The node counts are identical, and that is the point.** This change cannot
+alter what the search concludes — it computes the same attack sets by a faster
+route — so the golden table in `test_search_nodes.cpp` needed no edit, and a
+change to it would have been a bug report rather than a result.
+
+The spread across the four positions is wider than the change itself, and both
+ends are worth reading rather than averaging:
+
+- **The endgame gains most (−29.5%).** A king-and-pawns position has almost
+  nothing on the board, so the ray walker's loops ran their full length to the
+  edge on nearly every call. It was paying the most for the old implementation
+  and is now by far the fastest position in the set.
+- **The tactical position gains least (−5.3%).** It is the one position whose
+  time goes mostly into ordering and evaluation rather than into generation. A
+  16× win on one function is not a 16× win on anything, and a set of four
+  positions ranging from −5% to −30% is the actual result.
+
+Everything the change does not touch stayed still, which is the other half of
+the claim: `BM_SquareBBShift` moved +0.6% and the three `BM_Evaluate_*`
+benchmarks between −0.1% and −1.8%, all well inside the ±5% band the framework
+treats as noise.
+
+Depth in a fixed five seconds, the other metric Milestone 6 was quoted on:
+
+| | Opening | Middlegame | Endgame (K+P) | Tactical |
+|---|---:|---:|---:|---:|
+| Depth in 5 s, ray walk → magic | 14 → **15** | 14 → 14 | 27 → **28** | 16 → 16 |
+
+Half a ply on average, which is what a 5–30% speedup buys and no more. A ply is
+roughly a factor of two to three in tree size at these depths, so a change that
+does not touch the tree at all can only ever land on the boundary — two of the
+four positions were near one, and two were not. Quoted because it is the honest
+shape of a throughput win: [LMR](#late-move-reductions-milestone-6) moved these
+same positions by three to five plies by searching a *smaller* tree, which is a
+different and larger kind of win than making the same tree cheaper.
+
+Perft, which is nothing but move generation, gives the cleanest whole-movegen
+figure. Start position to depth 6 plus Kiwipete to depth 5 — 317 million nodes,
+minimum of five alternating runs, user time:
+
+| | Ray walk | Magic | Δ |
+|---|---:|---:|---:|
+| Deep perft suite | 9.11 s | **6.83 s** | −25.0% |
+
+Every reference value still matches exactly. A single wrong entry among the
+107,648 in the tables would have moved one of them.
+
+### What it cost
+
+| | |
+|---|---:|
+| Attack tables | 841 KiB (102,400 rook + 5,248 bishop entries) |
+| `BM_InitAttackTables` | 0.75 ms, once per process |
+| Magic search, seed 0 | 9.96 M candidates, 0.13 s, offline |
+
+The 0.75 ms is new — it is the table fill, 107,648 ray walks paid at startup so
+that no search pays for one. It is recorded rather than waved away, but against
+a search measured in seconds it is not a cost worth optimizing.
+
+The 841 KiB is the one that could have gone wrong, and is why the
+macrobenchmark above is quoted at all: a lookup table that outgrows L2 can make
+a function faster and the engine slower. Here it did not.
 
 ## A note on the numbers before 2026-08-14
 

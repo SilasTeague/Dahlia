@@ -22,7 +22,7 @@ the dated status notes written as each one closed. This page is the summary.
 | 4 | **Move ordering, quiescence, TT** | ✅ Complete — [numbers](results.md#move-ordering-and-quiescence-milestone-4) |
 | 5 | **PVS, piece-square tables / tapered eval, null-move pruning** | ✅ Complete — [summary](results.md#milestone-5-end-to-end) |
 | 6 | **Aspiration windows, late move reductions** | ✅ Complete — [summary](results.md#milestone-6-end-to-end) |
-| 7 | **Polish & portfolio packaging** — architecture docs, full option set, strength estimate | 🚧 In progress |
+| 7 | **Polish & portfolio packaging** — architecture docs, full option set, strength estimate, magic bitboards | 🚧 In progress |
 | 8+ | **Lazy-SMP search**, opening book, evaluation tuning harness | ⬜ Committed stretch goals |
 
 ## Milestone 7 tracking
@@ -34,19 +34,27 @@ the dated status notes written as each one closed. This page is the summary.
 | Complete UCI option set (`Hash`, `Move Overhead`) | ✅ [uci.md](uci.md) |
 | ADR log reviewed for completeness | ✅ [`adr/`](adr) |
 | Live deployment and release pipeline | ✅ [silasteague.com/chess](https://silasteague.com/chess), [@DahliaBot](https://lichess.org/@/DahliaBot) |
+| Magic bitboards for sliding pieces | ✅ [numbers](results.md#magic-bitboards-milestone-7) · [ADR 0007](adr/0007-magic-bitboards.md) |
 | Historical benchmark chart generated from `bench/results/` | ⬜ `compare_bench_results.py --history` renders the series as text; no chart yet |
 | Demo GIF | ⬜ |
 
 ## Deviations from the original plan
 
-Two things shipped that the roadmap did not anticipate, both driven by real need
-rather than by the plan:
+Three things shipped that the roadmap did not anticipate, all driven by real
+need rather than by the plan:
 
 - **Asynchronous search and `stop`** ([ADR 0003](adr/0003-async-search-stop.md)),
   which pulled the ThreadSanitizer CI leg forward from the SMP milestone to
   Milestone 4's timeframe.
 - **Static Linux release binaries and live deployment**, which is what makes the
   playable web demo possible.
+- **Magic bitboards landing inside Milestone 7** rather than after it. They were
+  a committed stretch goal, deferred since Milestone 1 with a benchmark baseline
+  recording underneath them the whole time. What moved them forward was the
+  profiler: `sliding_attacks` turned out to be tied for the largest self-time
+  entry in the engine, which is a stronger reason to act than "this is known to
+  be slow"
+  ([ADR 0007](adr/0007-magic-bitboards.md)).
 
 And one criterion was rewritten rather than quietly dropped. Milestones 4 and 5
 both required an "SPRT-confirmed Elo gain", and neither met it — the SPRT rig,
@@ -69,10 +77,6 @@ exists:
   Texel-style). Mostly integration and data-pipeline work. The tuner is what
   eventually replaces the borrowed PeSTO piece-square values with Dahlia's own,
   measured against them.
-- **Magic bitboards** for sliding pieces, replacing the loop/bit-shift ray
-  walker. Deferred since Milestone 1 on purpose, not forgotten — the
-  microbenchmark that will justify them has been recording a baseline the whole
-  time ([results.md](results.md#movegen-baseline)).
 - **Incremental evaluation**, updating a running score inside
   `make_move`/`unmake_move` instead of recomputing at every node. Gated on "once
   profiling shows eval cost matters"; it now does, and `BM_Evaluate_*` exists to

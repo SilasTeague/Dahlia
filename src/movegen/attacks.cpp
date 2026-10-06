@@ -10,8 +10,6 @@ constexpr Bitboard NOT_H_FILE  = 0x7F7F7F7F7F7F7F7FULL;
 constexpr Bitboard NOT_AB_FILE = 0xFCFCFCFCFCFCFCFCULL;
 constexpr Bitboard NOT_GH_FILE = 0x3F3F3F3F3F3F3F3FULL;
 
-constexpr int SLIDING_DIRS[] = {-9, -8, -7, 1, 9, 8, 7, -1};
-constexpr int KNIGHT_OFFSETS[] = {-10, -17, -15, -6, 10, 17, 15, 6};
 
 void init_attack_tables() {
 	for (int square = 0; square < 64; square++) {
@@ -45,13 +43,15 @@ void init_attack_tables() {
 			((location >> 7) & NOT_A_FILE) |
 			((location >> 9) & NOT_H_FILE);
 	}
+
+	init_magics();
 }
 
-static Bitboard sliding_attacks(Square square, Bitboard occupied, const int* offsets, int num_offsets) {
+static Bitboard ray_attacks(Square square, Bitboard occupied, const int* offsets) {
 	Bitboard attacks = 0;
 	int start_file = square % 8;
 
-	for (int d = 0; d < num_offsets; d++) {
+	for (int d = 0; d < 4; d++) {
 		int offset = offsets[d];
 		int prev_file = start_file;
 		int s = square;
@@ -80,16 +80,12 @@ static Bitboard sliding_attacks(Square square, Bitboard occupied, const int* off
 constexpr int ROOK_OFFSETS[]   = {8, -8, 1, -1};
 constexpr int BISHOP_OFFSETS[] = {9, -9, 7, -7};
 
-Bitboard rook_attacks(Square square, Bitboard occupied) {
-	return sliding_attacks(square, occupied, ROOK_OFFSETS, 4);
+Bitboard ray_rook_attacks(Square square, Bitboard occupied) {
+	return ray_attacks(square, occupied, ROOK_OFFSETS);
 }
 
-Bitboard bishop_attacks(Square square, Bitboard occupied) {
-	return sliding_attacks(square, occupied, BISHOP_OFFSETS, 4);
-}
-
-Bitboard queen_attacks(Square square, Bitboard occupied) {
-	return rook_attacks(square, occupied) | bishop_attacks(square, occupied);
+Bitboard ray_bishop_attacks(Square square, Bitboard occupied) {
+	return ray_attacks(square, occupied, BISHOP_OFFSETS);
 }
 
 bool is_attacked(const Position &pos, Square square, Color by) {

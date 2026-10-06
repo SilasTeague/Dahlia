@@ -6,6 +6,7 @@ below it lives here.
 | Document | What's in it |
 |---|---|
 | [architecture.md](architecture.md) | module graph, data flow, structural properties, repository layout |
+| [movegen.md](movegen.md) | leaper tables, magic bitboards, how the magic numbers are found and checked |
 | [search.md](search.md) | ordering, quiescence, TT, PVS, null-move, aspiration windows, LMR, time management |
 | [evaluation.md](evaluation.md) | tapered piece-square tables, game phase, orientation, what's missing |
 | [uci.md](uci.md) | supported commands and options, time management, concurrency behaviour |
@@ -28,6 +29,7 @@ Contested decisions are recorded rather than re-litigated. Full ADRs live in
 |---|---|
 | [Pseudo-legal movegen + legality filter](REFERENCE.md#33-move-generation-movegen) | Keeps the hot generation loop simple and benchmarkable in isolation; cost is slightly more complex make/unmake |
 | [Magic bitboards deferred past Milestone 1](REFERENCE.md#33-move-generation-movegen) | Correctness → Measurement → Optimization: the loop-based baseline is what makes the later swap a citable win instead of a vibes-based one |
+| [Magic numbers searched offline and checked in; the ray walker kept as the oracle](adr/0007-magic-bitboards.md) | A startup search hides 128 correctness-critical values from every diff; the implementation being replaced is the only test oracle that wasn't written by the person who'd have written the bug |
 | [CMake as the build system of record](adr/0002-cmake-migration.md) | Library/executable/test/bench target separation, sanitizers, `FetchContent`; the Makefile survives only as a thin wrapper with no logic of its own |
 | [Async search; concurrent `go` rejected, not queued](adr/0003-async-search-stop.md) | Queueing means answering "what does a *third* `go` do", for a case no compliant GUI produces |
 | [Node counts in CI, timing local and manual](adr/0004-node-counts-in-ci-timing-local.md) | Deterministic and noisy metrics have opposite needs; one mechanism for both forced timing's weaknesses onto node counts, which need no tolerance band at all |
